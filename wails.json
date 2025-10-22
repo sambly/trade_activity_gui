@@ -1,0 +1,13 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "trade_activity_gui",
+  "outputfilename": "trade_activity_gui",
+  "frontend:install": "npm install",
+  "frontend:build": "npm run build",
+  "frontend:dev:watcher": "npm run dev",
+  "frontend:dev:serverUrl": "auto",
+  "author": {
+    "name": "Kudrjavcev.EA",
+    "email": "kudryavblyzheka33@gmail.com"
+  }
+}
