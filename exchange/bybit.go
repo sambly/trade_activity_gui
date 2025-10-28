@@ -47,6 +47,7 @@ func (b *Bybit) GetPositionInfo() ([]Position, error) {
 		pos.Size, _ = strconv.ParseFloat(posEx.Size, 64)
 		pos.EntryPrice, _ = strconv.ParseFloat(posEx.AvgPrice, 64)
 		pos.UnrealisedPnl, _ = strconv.ParseFloat(posEx.UnrealisedPnl, 64)
+		pos.CreatedTime = posEx.CreatedTime
 		positions = append(positions, pos)
 	}
 	return positions, nil
@@ -74,6 +75,7 @@ func (b *Bybit) SubscribePositionStart(ctx context.Context, onData func(pos Posi
 			pos.EntryPrice, _ = strconv.ParseFloat(posEx.EntryPrice, 64)
 			pos.UnrealisedPnl, _ = strconv.ParseFloat(posEx.UnrealisedPnl, 64)
 			pos.CumRealisedPnl, _ = strconv.ParseFloat(posEx.CumRealisedPnl, 64)
+			pos.CreatedTime = posEx.CreatedTime
 
 			onData(pos)
 		}

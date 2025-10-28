@@ -3,3 +3,5 @@
 import {exchange} from '../models';
 
 export function GetPositions():Promise<Array<exchange.Position>>;
+
+export function UpdateWindowTitle(arg1:number):Promise<void>;

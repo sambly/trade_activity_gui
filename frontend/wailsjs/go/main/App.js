@@ -5,3 +5,7 @@
 export function GetPositions() {
   return window['go']['main']['App']['GetPositions']();
 }
+
+export function UpdateWindowTitle(arg1) {
+  return window['go']['main']['App']['UpdateWindowTitle'](arg1);
+}

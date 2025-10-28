@@ -31,17 +31,19 @@ func main() {
 
 	// Create application with options
 	err := wails.Run(&options.App{
-		Title:  "trade_activity_gui",
-		Width:  300,
-		Height: 200,
+		Title:  "",
+		Width:  250,
+		Height: 110,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
 		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
 		OnStartup:        app.startup,
+		OnShutdown:       app.shutdown,
 		Bind: []interface{}{
 			app,
 		},
+		//Frameless: true, // Убирает рамку окна
 	})
 
 	if err != nil {

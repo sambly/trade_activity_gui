@@ -45,10 +45,11 @@ func (d *DataFeed) Start(ctx context.Context) error {
 	}
 	d.PosSrv.SubscribePositionStart(ctx)
 
-	<-ctx.Done()
-	log.Println("🛑 Context cancelled, stopping data feed...")
+	return nil
+}
+
+func (d *DataFeed) Stop() {
 
 	d.PosSrv.StopAllSubscriptions()
-
-	return nil
+	log.Println("🛑 Context cancelled, stopping data feed...")
 }

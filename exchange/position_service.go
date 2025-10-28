@@ -9,11 +9,14 @@ import (
 
 type Position struct {
 	Symbol         string
+	CreatedTime    string
 	Side           string
 	Size           float64
 	EntryPrice     float64
 	UnrealisedPnl  float64
 	CumRealisedPnl float64
+	CurrentPrice   float64
+	CurrentValue   float64
 }
 
 type PositionService struct {
@@ -41,15 +44,7 @@ func (ps *PositionService) GetAllPosition() []Position {
 
 	positions := make([]Position, 0, len(ps.position))
 	for _, pos := range ps.position {
-		// Создаем копию, чтобы избежать проблем с concurrent access
-		positions = append(positions, Position{
-			Symbol:         pos.Symbol,
-			Side:           pos.Side,
-			Size:           pos.Size,
-			EntryPrice:     pos.EntryPrice,
-			UnrealisedPnl:  pos.UnrealisedPnl,
-			CumRealisedPnl: pos.CumRealisedPnl,
-		})
+		positions = append(positions, *pos)
 	}
 	return positions
 }
@@ -102,6 +97,7 @@ func (ps *PositionService) Init() error {
 	for _, pos := range position {
 		newPos := &Position{
 			Symbol:        pos.Symbol,
+			CreatedTime:   pos.CreatedTime,
 			Side:          pos.Side,
 			Size:          pos.Size,
 			EntryPrice:    pos.EntryPrice,
@@ -143,6 +139,7 @@ func (ps *PositionService) SubscribePositionStart(ctx context.Context) error {
 			} else {
 				ps.position[pos.Symbol] = &Position{
 					Symbol:        pos.Symbol,
+					CreatedTime:   pos.CreatedTime,
 					Side:          pos.Side,
 					Size:          pos.Size,
 					EntryPrice:    pos.EntryPrice,
@@ -189,6 +186,8 @@ func (ps *PositionService) SubscribeTickerStart(ctx context.Context, symbol stri
 		if !exists {
 			return
 		}
+		existing.CurrentPrice = price
+		existing.CurrentValue = price * existing.Size
 
 		var unrealisedPnL float64
 		switch existing.Side {
@@ -203,7 +202,7 @@ func (ps *PositionService) SubscribeTickerStart(ctx context.Context, symbol stri
 
 		existing.UnrealisedPnl = unrealisedPnL
 
-		log.Printf("[Ticker] %s UnrealisedPnL: %.6f | Size: %.2f | LastPrice: %.2f", symbol, unrealisedPnL, existing.Size, price)
+		//log.Printf("[Ticker] %s UnrealisedPnL: %.6f | Size: %.2f | LastPrice: %.2f", symbol, unrealisedPnL, existing.Size, price)
 	}
 
 	errHandler := func(err error) {

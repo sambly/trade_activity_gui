@@ -1,67 +1,48 @@
 <template>
-  <main>
-    <div class="position-container">
-      <h2>Текущие позиции</h2>
+   <main class="compact-container">
+    <!-- Сводная строка -->
+    <div class="summary-row">
+      <div class="summary-item">
+        <span>СДЕЛОК {{ positions.length }} [</span>
+        <span class="long-count">{{ longCount }}</span>
+        <span>/</span>
+        <span class="short-count">{{ shortCount }}</span>
+        <span>]</span>
+      </div>
+      <div class="summary-item">
+        <span>СУММА${{ formatNumber(totalValue) }}</span>
+      </div>
+      <div class="summary-item" :class="getPnlClass(totalUnrealisedPnl)">
+        <span>PNL${{ formatPnl(totalUnrealisedPnl) }}</span>
+      </div>
+    </div>
+
+    <!-- Список позиций -->
+    <div class="positions-list">
+      <div 
+        v-for="position in positions" 
+        :key="position.Symbol + position.Side"
+        class="position-item"
+      >
+        <div class="position-symbol">{{ getShortSymbol(position.Symbol) }}</div>
+        <div class="position-size">{{ formatCompactNumber(position.CurrentValue) }}</div>
+        <div class="position-pnl" :class="getPnlClass(position.UnrealisedPnl)">
+          {{ formatCompactPnl(position.UnrealisedPnl) }}
+        </div>
+      </div>
       
       <div v-if="positions.length === 0" class="no-positions">
-        Нет открытых позиций
+        Нет сделок
       </div>
-
-      <div v-else class="positions-grid">
-        <div class="position-header">
-          <div class="header-cell">Символ</div>
-          <div class="header-cell">Сторона</div>
-          <div class="header-cell">Размер</div>
-          <div class="header-cell">Цена входа</div>
-          <div class="header-cell">Нереализованный PnL</div>
-          <div class="header-cell">Реализованный PnL</div>
-        </div>
-
-        <div 
-          v-for="position in positions" 
-          :key="position.Symbol + position.Side"
-          class="position-row"
-          :class="getRowClass(position)"
-        >
-          <div class="cell symbol">{{ position.Symbol }}</div>
-          <div class="cell side" :class="getSideClass(position.Side)">
-            {{ getSideText(position.Side) }}
-          </div>
-          <div class="cell size">{{ formatNumber(position.Size) }}</div>
-          <div class="cell entry-price">{{ formatNumber(position.EntryPrice) }}</div>
-          <div class="cell pnl" :class="getPnlClass(position.UnrealisedPnl)">
-            {{ formatPnl(position.UnrealisedPnl) }}
-          </div>
-          <div class="cell pnl" :class="getPnlClass(position.CumRealisedPnl)">
-            {{ formatPnl(position.CumRealisedPnl) }}
-          </div>
-        </div>
-      </div>
-
-      <!-- Сводная информация -->
-      <div v-if="positions.length > 0" class="summary">
-        <div class="summary-item">
-          <span>Всего позиций:</span>
-          <span>{{ positions.length }}</span>
-        </div>
-        <div class="summary-item">
-          <span>Общий нереализованный PnL:</span>
-          <span :class="getPnlClass(totalUnrealisedPnl)">{{ formatPnl(totalUnrealisedPnl) }}</span>
-        </div>
-        <div class="summary-item">
-          <span>Общий реализованный PnL:</span>
-          <span :class="getPnlClass(totalRealisedPnl)">{{ formatPnl(totalRealisedPnl) }}</span>
-        </div>
-      </div>
-
-      <button class="btn" @click="loadPositions">Обновить</button>
     </div>
+
+    <!-- <button class="refresh-btn" @click="loadPositions">↻</button> -->
   </main>
 </template>
 
 <script lang="ts" setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { GetPositions } from '../../wailsjs/go/main/App'
+import { ref, computed, onMounted, onUnmounted,watch  } from 'vue'
+import { GetPositions,UpdateWindowTitle  } from '../../wailsjs/go/main/App'
 import type { exchange } from '../../wailsjs/go/models'
 
 type Position = exchange.Position
@@ -69,60 +50,113 @@ type Position = exchange.Position
 const positions = ref<Position[]>([])
 let intervalId: number | null = null
 
+// Компьютеды для сводной информации
+const longCount = computed(() => {
+  return positions.value.filter(p => p.Side?.toLowerCase() === 'buy').length
+})
+
+const shortCount = computed(() => {
+  return positions.value.filter(p => p.Side?.toLowerCase() === 'sell').length
+})
+
+const totalValue = computed(() => {
+  return positions.value.reduce((sum, position) => sum + Math.abs(position.CurrentValue), 0)
+})
+
 const totalUnrealisedPnl = computed(() => {
   return positions.value.reduce((sum, position) => sum + position.UnrealisedPnl, 0)
 })
 
-const totalRealisedPnl = computed(() => {
-  return positions.value.reduce((sum, position) => sum + position.CumRealisedPnl, 0)
+// Watcher для отслеживания изменений PNL и обновления заголовка
+watch(totalUnrealisedPnl, async (newPnl) => {
+  try {
+    await UpdateWindowTitle(newPnl)
+  } catch (error) {
+    console.error('Ошибка при обновлении заголовка:', error)
+  }
 })
+
 
 const loadPositions = async () => {
   try {
     const result = await GetPositions()
-    positions.value = result || []
+    const rawPositions = result || []
+    
+    // Сортируем позиции по времени создания (от новых к старым)
+    positions.value = rawPositions.sort((a, b) => {
+      const timeA = parseInt(a.CreatedTime) || 0
+      const timeB = parseInt(b.CreatedTime) || 0
+      return timeB - timeA // от новых к старым
+    })
+    
   } catch (error) {
     console.error('Ошибка при загрузке позиций:', error)
     positions.value = []
   }
 }
 
-const getSideClass = (side: string) => {
-  return side.toLowerCase() === 'buy' ? 'side-buy' : 'side-sell'
-}
-
-const getSideText = (side: string) => {
-  return side.toLowerCase() === 'buy' ? 'LONG' : 'SHORT'
-}
-
 const getPnlClass = (pnl: number) => {
   if (pnl > 0) return 'pnl-positive'
   if (pnl < 0) return 'pnl-negative'
-  return 'pnl-neutral'
+  return ''
 }
 
-const getRowClass = (position: Position) => {
-  return getPnlClass(position.UnrealisedPnl)
+// Сокращение символа (если нужно)
+const getShortSymbol = (symbol: string) => {
+  if (!symbol) return ''
+  // Убираем USDT если он есть в конце
+  return symbol.replace(/USDT$/, '')
 }
 
+// Форматирование чисел в компактном виде
 const formatNumber = (value: number) => {
   if (value === undefined || value === null) return '0'
   return new Intl.NumberFormat('ru-RU', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 8
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2
+  }).format(value)
+}
+
+const formatCompactNumber = (value: number) => {
+  if (value === undefined || value === null) return '0'
+  const absValue = Math.abs(value)
+  
+  if (absValue >= 1000) {
+    return (value / 1000).toFixed(1) + 'k'
+  }
+  
+  return new Intl.NumberFormat('ru-RU', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: absValue < 1 ? 4 : 2
   }).format(value)
 }
 
 const formatPnl = (pnl: number) => {
-  return `${pnl >= 0 ? '+' : ''}${formatNumber(pnl)}`
+  return formatNumber(pnl)
+}
+
+const formatCompactPnl = (pnl: number) => {
+  const absPnl = Math.abs(pnl)
+  let formattedPnl: string
+  
+  if (absPnl >= 1000) {
+    formattedPnl = (pnl / 1000).toFixed(1) + 'k'
+  } else if (absPnl >= 1) {
+    formattedPnl = pnl.toFixed(1)
+  } else if (absPnl >= 0.01) {
+    formattedPnl = pnl.toFixed(3)
+  } else {
+    formattedPnl = pnl.toFixed(6)
+  }
+  
+  return pnl >= 0 ? `+${formattedPnl}` : formattedPnl
 }
 
 onMounted(() => {
   loadPositions()
-  // Опционально: обновлять позиции периодически
   intervalId = window.setInterval(() => {
     loadPositions()
-  }, 5000) // Обновление каждые 5 секунд
+  }, 5000)
 })
 
 onUnmounted(() => {
@@ -133,141 +167,150 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.position-container {
-  padding: 20px;
-  font-family: Arial, sans-serif;
+
+/* Глобальное скрытие скроллбаров */
+:global(::-webkit-scrollbar) {
+  display: none;
 }
 
-h2 {
-  color: #333;
-  margin-bottom: 20px;
+:global(body) {
+  overflow: hidden;
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+.compact-container {
+  width: 225px;
+  height: 60px;
+  padding: 4px;
+  font-family: Arial, sans-serif;
+  font-size: 10px;
+  background-color: #f8f9fa;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Сводная строка */
+.summary-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 4px;
+  padding: 2px 4px;
+  background-color: #fff;
+  border-radius: 2px;
+  font-weight: bold;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.summary-item {
+  display: flex;
+  align-items: center;
+}
+
+/* Список позиций */
+.positions-list {
+  flex: 1;
+  overflow-y: auto;
+  max-height: 60px;
+}
+
+.position-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 2px 4px;
+  margin-bottom: 1px;
+  background-color: #fff;
+  border-radius: 2px;
+  font-size: 9px;
+}
+
+.position-item:hover {
+  background-color: #f0f0f0;
+}
+
+.position-symbol {
+  font-weight: bold;
+  min-width: 40px;
+  text-align: left;
+}
+
+.position-size {
+  min-width: 40px;
+  text-align: center;
+}
+
+.position-pnl {
+  min-width: 50px;
+  text-align: right;
+  font-weight: bold;
+}
+
+.pnl-positive {
+  color: #00a86b;
+}
+
+.pnl-negative {
+  color: #ff4444;
+}
+
+.long-count {
+  color: #00a86b; /* Зеленый цвет для лонгов */
+  font-weight: bold;
+}
+
+.short-count {
+  color: #ff4444; /* Красный цвет для шортов */
+  font-weight: bold;
 }
 
 .no-positions {
   text-align: center;
   color: #666;
   font-style: italic;
-  padding: 40px;
+  padding: 8px;
+  font-size: 9px;
 }
 
-.positions-grid {
-  border: 1px solid #e0e0e0;
-  border-radius: 8px;
-  overflow: hidden;
-  margin-bottom: 20px;
-}
-
-.position-header {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr 1fr 1fr 1fr;
-  background-color: #f5f5f5;
-  font-weight: bold;
-  border-bottom: 1px solid #e0e0e0;
-}
-
-.header-cell, .cell {
-  padding: 12px 8px;
-  text-align: center;
-  border-right: 1px solid #e0e0e0;
-}
-
-.header-cell:last-child, .cell:last-child {
-  border-right: none;
-}
-
-.position-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr 1fr 1fr 1fr;
-  border-bottom: 1px solid #e0e0e0;
-  transition: background-color 0.2s;
-}
-
-.position-row:hover {
-  background-color: #f9f9f9;
-}
-
-.position-row:last-child {
-  border-bottom: none;
-}
-
-/* Стили для сторон позиции */
-.side-buy {
-  color: #00a86b;
-  font-weight: bold;
-}
-
-.side-sell {
-  color: #ff4444;
-  font-weight: bold;
-}
-
-/* Стили для PnL */
-.pnl-positive {
-  color: #00a86b;
-  font-weight: bold;
-}
-
-.pnl-negative {
-  color: #ff4444;
-  font-weight: bold;
-}
-
-.pnl-neutral {
-  color: #666;
-}
-
-/* Сводная информация */
-.summary {
-  margin-bottom: 20px;
-  padding: 15px;
-  background-color: #f8f9fa;
-  border-radius: 8px;
-  border-left: 4px solid #007bff;
-}
-
-.summary-item {
-  display: flex;
-  justify-content: space-between;
-  margin-bottom: 8px;
-}
-
-.summary-item:last-child {
-  margin-bottom: 0;
-  font-weight: bold;
-  font-size: 1.1em;
-}
-
-.btn {
+.refresh-btn {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  background: none;
+  border: none;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 2px;
   background-color: #007bff;
   color: white;
-  border: none;
-  padding: 10px 20px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 16px;
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.btn:hover {
+.refresh-btn:hover {
   background-color: #0056b3;
 }
 
-/* Адаптивность */
-@media (max-width: 768px) {
-  .position-header,
-  .position-row {
-    grid-template-columns: 1fr;
-    gap: 5px;
-  }
-  
-  .header-cell, .cell {
-    text-align: left;
-    padding: 8px;
-    border-right: none;
-    border-bottom: 1px solid #e0e0e0;
-  }
-  
-  .header-cell:last-child, .cell:last-child {
-    border-bottom: none;
-  }
+/* Скрываем scrollbar для компактности */
+.positions-list::-webkit-scrollbar {
+  width: 3px;
+}
+
+.positions-list::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+.positions-list::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 2px;
+}
+
+.positions-list::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
 }
 </style>
