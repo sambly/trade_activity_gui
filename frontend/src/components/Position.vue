@@ -3,17 +3,17 @@
     <!-- Сводная строка -->
     <div class="summary-row">
       <div class="summary-item">
-        <span>СДЕЛОК {{ positions.length }} [</span>
-        <span class="long-count">{{ longCount }}</span>
+        <span>{{ positions.length }} [</span>
+        <span class="color-green">{{ profitableCount }}</span>
         <span>/</span>
-        <span class="short-count">{{ shortCount }}</span>
+        <span class="color-red">{{ lossCount  }}</span>
         <span>]</span>
       </div>
       <div class="summary-item">
-        <span>СУММА${{ formatNumber(totalValue) }}</span>
+        <span>${{ formatNumber(totalValue) }}</span>
       </div>
       <div class="summary-item" :class="getPnlClass(totalUnrealisedPnl)">
-        <span>PNL${{ formatPnl(totalUnrealisedPnl) }}</span>
+        <span>${{ formatPnl(totalUnrealisedPnl) }}</span>
       </div>
     </div>
 
@@ -27,7 +27,7 @@
         <div class="position-symbol">{{ getShortSymbol(position.Symbol) }}</div>
         <div class="position-size">{{ formatCompactNumber(position.CurrentValue) }}</div>
         <div class="position-pnl" :class="getPnlClass(position.UnrealisedPnl)">
-          {{ formatCompactPnl(position.UnrealisedPnl) }}
+          {{ formatPnl(position.UnrealisedPnl) }}
         </div>
       </div>
       
@@ -36,13 +36,12 @@
       </div>
     </div>
 
-    <!-- <button class="refresh-btn" @click="loadPositions">↻</button> -->
   </main>
 </template>
 
 <script lang="ts" setup>
-import { ref, computed, onMounted, onUnmounted,watch  } from 'vue'
-import { GetPositions,UpdateWindowTitle  } from '../../wailsjs/go/main/App'
+import { ref, computed, onMounted, onUnmounted} from 'vue'
+import { GetPositions} from '../../wailsjs/go/main/App'
 import type { exchange } from '../../wailsjs/go/models'
 
 type Position = exchange.Position
@@ -51,12 +50,12 @@ const positions = ref<Position[]>([])
 let intervalId: number | null = null
 
 // Компьютеды для сводной информации
-const longCount = computed(() => {
-  return positions.value.filter(p => p.Side?.toLowerCase() === 'buy').length
+const profitableCount = computed(() => {
+  return positions.value.filter(p => p.UnrealisedPnl > 0).length
 })
 
-const shortCount = computed(() => {
-  return positions.value.filter(p => p.Side?.toLowerCase() === 'sell').length
+const lossCount = computed(() => {
+  return positions.value.filter(p => p.UnrealisedPnl < 0).length
 })
 
 const totalValue = computed(() => {
@@ -66,16 +65,6 @@ const totalValue = computed(() => {
 const totalUnrealisedPnl = computed(() => {
   return positions.value.reduce((sum, position) => sum + position.UnrealisedPnl, 0)
 })
-
-// Watcher для отслеживания изменений PNL и обновления заголовка
-watch(totalUnrealisedPnl, async (newPnl) => {
-  try {
-    await UpdateWindowTitle(newPnl)
-  } catch (error) {
-    console.error('Ошибка при обновлении заголовка:', error)
-  }
-})
-
 
 const loadPositions = async () => {
   try {
@@ -96,8 +85,8 @@ const loadPositions = async () => {
 }
 
 const getPnlClass = (pnl: number) => {
-  if (pnl > 0) return 'pnl-positive'
-  if (pnl < 0) return 'pnl-negative'
+  if (pnl > 0) return 'color-green'
+  if (pnl < 0) return 'color-red'
   return ''
 }
 
@@ -180,8 +169,8 @@ onUnmounted(() => {
 }
 
 .compact-container {
-  width: 225px;
-  height: 60px;
+  width: 130px;
+  height: 50px;
   padding: 4px;
   font-family: Arial, sans-serif;
   font-size: 10px;
@@ -242,27 +231,17 @@ onUnmounted(() => {
 }
 
 .position-pnl {
-  min-width: 50px;
+  min-width: 40px;
   text-align: right;
   font-weight: bold;
 }
 
-.pnl-positive {
+.color-green {
   color: #00a86b;
 }
 
-.pnl-negative {
+.color-red {
   color: #ff4444;
-}
-
-.long-count {
-  color: #00a86b; /* Зеленый цвет для лонгов */
-  font-weight: bold;
-}
-
-.short-count {
-  color: #ff4444; /* Красный цвет для шортов */
-  font-weight: bold;
 }
 
 .no-positions {
@@ -271,29 +250,6 @@ onUnmounted(() => {
   font-style: italic;
   padding: 8px;
   font-size: 9px;
-}
-
-.refresh-btn {
-  position: absolute;
-  top: 2px;
-  right: 2px;
-  background: none;
-  border: none;
-  font-size: 12px;
-  cursor: pointer;
-  padding: 2px;
-  border-radius: 2px;
-  background-color: #007bff;
-  color: white;
-  width: 16px;
-  height: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.refresh-btn:hover {
-  background-color: #0056b3;
 }
 
 /* Скрываем scrollbar для компактности */

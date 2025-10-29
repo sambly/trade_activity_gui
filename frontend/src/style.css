@@ -5,11 +5,13 @@ html {
 }
 
 body {
+    /* для перемещения окна без верхего заголовка  */
+    widows: 1; 
     margin: 0;
     color: rgb(155, 110, 110);
     font-family: "Nunito", -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto",
     "Oxygen", "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue",
-    sans-serif;
+    sans-serif; 
 }
 
 @font-face {
