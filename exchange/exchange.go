@@ -3,7 +3,7 @@ package exchange
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 )
 
 type Exchange interface {
@@ -14,14 +14,15 @@ type Exchange interface {
 }
 
 type DataFeed struct {
+	log      *slog.Logger
 	Exchange Exchange
 	PosSrv   *PositionService
 }
 
-func NewDataFeed(exchange Exchange) *DataFeed {
-
-	posSrv := NewPositionService(exchange)
+func NewDataFeed(exchange Exchange, logger *slog.Logger) *DataFeed {
+	posSrv := NewPositionService(exchange, logger)
 	return &DataFeed{
+		log:      logger.With("component", "exchange"),
 		Exchange: exchange,
 		PosSrv:   posSrv,
 	}
@@ -37,9 +38,14 @@ func (d *DataFeed) Start(ctx context.Context) error {
 		p := pos
 		go func() {
 			if err := d.PosSrv.AddSubscribeTicker(ctx, p.Symbol); err != nil {
-				log.Printf("➕ ❌ Error adding position & subscribing to ticker %s: %v", p.Symbol, err)
+				d.log.Error("failed to add position and subscribe to ticker",
+					"symbol", p.Symbol,
+					"error", err,
+					"operation", "subscribe_ticker")
 			} else {
-				log.Printf("➕ ✅ Successfully added position & subscribed to ticker: %s", p.Symbol)
+				d.log.Info("successfully added position and subscribed to ticker",
+					"symbol", p.Symbol,
+					"operation", "subscribe_ticker")
 			}
 		}()
 	}
@@ -51,5 +57,5 @@ func (d *DataFeed) Start(ctx context.Context) error {
 func (d *DataFeed) Stop() {
 
 	d.PosSrv.StopAllSubscriptions()
-	log.Println("🛑 Context cancelled, stopping data feed...")
+	d.log.Info("Context cancelled, stopping data feed...")
 }

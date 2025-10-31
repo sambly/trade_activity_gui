@@ -5,6 +5,7 @@ go 1.23
 require (
 	github.com/hirokisan/bybit/v2 v2.39.0
 	github.com/joho/godotenv v1.5.1
+	github.com/jpillora/backoff v1.0.0
 	github.com/wailsapp/wails/v2 v2.10.2
 )
 

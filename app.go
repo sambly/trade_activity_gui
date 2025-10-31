@@ -2,17 +2,19 @@ package main
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"trade_activity_gui/exchange"
 )
 
 type App struct {
 	ctx      context.Context
+	log      *slog.Logger
 	dataFeed *exchange.DataFeed
 }
 
-func NewApp(dataFeed *exchange.DataFeed) *App {
+func NewApp(dataFeed *exchange.DataFeed, logger *slog.Logger) *App {
 	return &App{
+		log:      logger.With("component", "app"),
 		dataFeed: dataFeed,
 	}
 }
@@ -21,7 +23,7 @@ func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	go func() {
 		if err := a.dataFeed.Start(ctx); err != nil {
-			log.Printf("Data feed unavailable: %v", err)
+			a.log.Error("data feed unavailable", "error", err)
 		}
 	}()
 }
