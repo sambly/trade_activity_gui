@@ -1,9 +1,9 @@
 <script lang="ts" setup>
-import Position from './components/Position.vue'
+import MainContainer from './components/MainContainer.vue'
 </script>
 
 <template>
-  <Position/>
+  <MainContainer />
 </template>
 
 <style>

@@ -1,12 +1,12 @@
 <template>
-   <main class="compact-container">
+  <div class="positions-container">
     <!-- Сводная строка -->
     <div class="summary-row">
       <div class="summary-item">
         <span>{{ positions.length }} [</span>
-        <span class="color-green">{{ profitableCount }}</span>
+        <span class="profit-count">{{ profitableCount }}</span>
         <span>/</span>
-        <span class="color-red">{{ lossCount  }}</span>
+        <span class="loss-count">{{ lossCount }}</span>
         <span>]</span>
       </div>
       <div class="summary-item">
@@ -35,13 +35,12 @@
         Нет сделок
       </div>
     </div>
-
-  </main>
+  </div>
 </template>
 
 <script lang="ts" setup>
-import { ref, computed, onMounted, onUnmounted} from 'vue'
-import { GetPositions} from '../../wailsjs/go/main/App'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { GetPositions } from '../../wailsjs/go/main/App'
 import type { exchange } from '../../wailsjs/go/models'
 
 type Position = exchange.Position
@@ -49,7 +48,7 @@ type Position = exchange.Position
 const positions = ref<Position[]>([])
 let intervalId: number | null = null
 
-// Компьютеды для сводной информации
+// Компьютеды
 const profitableCount = computed(() => {
   return positions.value.filter(p => p.UnrealisedPnl > 0).length
 })
@@ -71,13 +70,11 @@ const loadPositions = async () => {
     const result = await GetPositions()
     const rawPositions = result || []
     
-    // Сортируем позиции по времени создания (от новых к старым)
     positions.value = rawPositions.sort((a, b) => {
       const timeA = parseInt(a.CreatedTime) || 0
       const timeB = parseInt(b.CreatedTime) || 0
-      return timeB - timeA // от новых к старым
+      return timeB - timeA
     })
-    
   } catch (error) {
     console.error('Ошибка при загрузке позиций:', error)
     positions.value = []
@@ -85,19 +82,15 @@ const loadPositions = async () => {
 }
 
 const getPnlClass = (pnl: number) => {
-  if (pnl > 0) return 'color-green'
-  if (pnl < 0) return 'color-red'
+  if (pnl > 0) return 'profit'
+  if (pnl < 0) return 'loss'
   return ''
 }
 
-// Сокращение символа (если нужно)
 const getShortSymbol = (symbol: string) => {
-  if (!symbol) return ''
-  // Убираем USDT если он есть в конце
-  return symbol.replace(/USDT$/, '')
+  return symbol ? symbol.replace(/USDT$/, '') : ''
 }
 
-// Форматирование чисел в компактном виде
 const formatNumber = (value: number) => {
   if (value === undefined || value === null) return '0'
   return new Intl.NumberFormat('ru-RU', {
@@ -124,73 +117,33 @@ const formatPnl = (pnl: number) => {
   return formatNumber(pnl)
 }
 
-const formatCompactPnl = (pnl: number) => {
-  const absPnl = Math.abs(pnl)
-  let formattedPnl: string
-  
-  if (absPnl >= 1000) {
-    formattedPnl = (pnl / 1000).toFixed(1) + 'k'
-  } else if (absPnl >= 1) {
-    formattedPnl = pnl.toFixed(1)
-  } else if (absPnl >= 0.01) {
-    formattedPnl = pnl.toFixed(3)
-  } else {
-    formattedPnl = pnl.toFixed(6)
-  }
-  
-  return pnl >= 0 ? `+${formattedPnl}` : formattedPnl
-}
-
 onMounted(() => {
   loadPositions()
-  intervalId = window.setInterval(() => {
-    loadPositions()
-  }, 5000)
+  intervalId = window.setInterval(loadPositions, 5000)
 })
 
 onUnmounted(() => {
-  if (intervalId) {
-    clearInterval(intervalId)
-  }
+  if (intervalId) clearInterval(intervalId)
 })
 </script>
 
 <style scoped>
-
-/* Глобальное скрытие скроллбаров */
-:global(::-webkit-scrollbar) {
-  display: none;
-}
-
-:global(body) {
-  overflow: hidden;
-  -ms-overflow-style: none;  /* IE and Edge */
-  scrollbar-width: none;  /* Firefox */
-}
-
-.compact-container {
-  width: 130px;
-  height: 50px;
-  padding: 4px;
-  font-family: Arial, sans-serif;
-  font-size: 10px;
-  background-color: #f8f9fa;
-  border: 1px solid #e0e0e0;
-  border-radius: 4px;
+.positions-container {
+  width: 100%;
+  height: 100%;
   display: flex;
   flex-direction: column;
 }
 
-/* Сводная строка */
 .summary-row {
   display: flex;
   justify-content: space-between;
-  margin-bottom: 4px;
-  padding: 2px 4px;
-  background-color: #fff;
+  margin-bottom: 2px;
+  padding: 1px 4px;
   border-radius: 2px;
   font-weight: bold;
   border-bottom: 1px solid #e0e0e0;
+  min-height: 14px;
 }
 
 .summary-item {
@@ -198,11 +151,9 @@ onUnmounted(() => {
   align-items: center;
 }
 
-/* Список позиций */
 .positions-list {
   flex: 1;
   overflow-y: auto;
-  max-height: 60px;
 }
 
 .position-item {
@@ -210,13 +161,11 @@ onUnmounted(() => {
   justify-content: space-between;
   padding: 2px 4px;
   margin-bottom: 1px;
-  background-color: #fff;
   border-radius: 2px;
-  font-size: 9px;
 }
 
 .position-item:hover {
-  background-color: #f0f0f0;
+  background: #f0f0f0;
 }
 
 .position-symbol {
@@ -236,11 +185,13 @@ onUnmounted(() => {
   font-weight: bold;
 }
 
-.color-green {
+.profit-count,
+.position-pnl.profit {
   color: #00a86b;
 }
 
-.color-red {
+.loss-count,
+.position-pnl.loss {
   color: #ff4444;
 }
 
@@ -249,24 +200,5 @@ onUnmounted(() => {
   color: #666;
   font-style: italic;
   padding: 8px;
-  font-size: 9px;
-}
-
-/* Скрываем scrollbar для компактности */
-.positions-list::-webkit-scrollbar {
-  width: 3px;
-}
-
-.positions-list::-webkit-scrollbar-track {
-  background: #f1f1f1;
-}
-
-.positions-list::-webkit-scrollbar-thumb {
-  background: #c1c1c1;
-  border-radius: 2px;
-}
-
-.positions-list::-webkit-scrollbar-thumb:hover {
-  background: #a8a8a8;
 }
 </style>
