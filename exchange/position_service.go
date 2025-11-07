@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"trade_activity_gui/hub"
 )
 
 type Position struct {
@@ -23,20 +24,29 @@ type PositionService struct {
 	wg       *sync.WaitGroup
 	log      *slog.Logger
 	exchange Exchange
+	hub      *hub.Hub
+
+	mu       sync.RWMutex
 	position map[string]*Position
 
-	mu sync.RWMutex
-	// Подписчки на тикеры с функцией отписки
-	subscribedTickers map[string]func() error
+	// Подписки на тикеры с функцией отписки
+	subscribedTickers  map[string]func() error
+	subscribedPosition func() error
+
+	positionStreamErrorCritical chan error
+	tickerStreamErrorCritical   chan error
 }
 
-func NewPositionService(exchange Exchange, logger *slog.Logger) *PositionService {
+func NewPositionService(exchange Exchange, logger *slog.Logger, hub *hub.Hub) *PositionService {
 	return &PositionService{
-		wg:                &sync.WaitGroup{},
-		log:               logger.With("component", "PositionService"),
-		exchange:          exchange,
-		position:          make(map[string]*Position),
-		subscribedTickers: make(map[string]func() error),
+		wg:                          &sync.WaitGroup{},
+		log:                         logger.With("component", "PositionService"),
+		exchange:                    exchange,
+		hub:                         hub,
+		position:                    make(map[string]*Position),
+		subscribedTickers:           make(map[string]func() error),
+		positionStreamErrorCritical: make(chan error, 1),
+		tickerStreamErrorCritical:   make(chan error, 1),
 	}
 }
 
@@ -51,18 +61,11 @@ func (ps *PositionService) GetAllPosition() []Position {
 	return positions
 }
 
-func (ps *PositionService) GetPosition(symbol string) (Position, bool) {
-	ps.mu.RLock()
-	defer ps.mu.RUnlock()
-	pos, exists := ps.position[symbol]
-	return *pos, exists
-}
-
 func (ps *PositionService) AddPosition(pos *Position) {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
 	ps.position[pos.Symbol] = pos
-	ps.log.Debug("position added", "symbol", pos.Symbol, "side", pos.Side, "size", pos.Size)
+	ps.log.Info("position added", "symbol", pos.Symbol, "side", pos.Side, "size", pos.Size)
 }
 
 func (ps *PositionService) AddSubscribeTicker(ctx context.Context, symbol string) error {
@@ -83,17 +86,11 @@ func (ps *PositionService) DeleteSubscribeTicker(symbol string) {
 		ps.log.Debug("ticker not subscribed, skipping unsubscribe", "symbol", symbol)
 		return
 	}
-
-	if err := ps.subscribedTickers[symbol](); err != nil {
-		ps.log.Warn("failed to unsubscribe ticker", "symbol", symbol, "error", err)
-	} else {
-		ps.log.Info("ticker unsubscribed", "symbol", symbol)
-	}
+	ps.subscribedTickers[symbol]()
 	delete(ps.subscribedTickers, symbol)
 }
 
-// Init загружает стартовые позиции из REST API
-func (ps *PositionService) Init() error {
+func (ps *PositionService) Init(ctx context.Context) error {
 
 	position, err := ps.exchange.GetPositionInfo()
 	if err != nil {
@@ -110,32 +107,66 @@ func (ps *PositionService) Init() error {
 		}
 		ps.AddPosition(newPos)
 	}
+
+	for _, pos := range ps.position {
+		if err := ps.AddSubscribeTicker(ctx, pos.Symbol); err != nil {
+			return fmt.Errorf("failed subscribe to ticker %s: %W", pos.Symbol, err)
+		}
+	}
+
 	return nil
 }
 
-// Подписка на обновления позиций
-func (ps *PositionService) SubscribePositionStart(ctx context.Context) error {
+func (ps *PositionService) Start(ctx context.Context) error {
 	if ps.exchange == nil {
 		return fmt.Errorf("exchange client is not initialized")
 	}
 
-	ps.log.Info("starting position subscription")
+	if err := ps.Init(ctx); err != nil {
+		return fmt.Errorf("init positions: %w", err)
+	}
+
+	unsubscribe, err := ps.SubscribePositionStart(ctx)
+	if err != nil {
+		return err
+	}
+	ps.subscribedPosition = unsubscribe
+
+	select {
+	case <-ctx.Done():
+		return nil
+	case err := <-ps.positionStreamErrorCritical:
+		return err
+	case err := <-ps.tickerStreamErrorCritical:
+		return err
+	}
+}
+
+func (ps *PositionService) SubscribePositionStart(ctx context.Context) (func() error, error) {
+
+	serviceName := "SubscribePosition"
+	ps.hub.UpdateConnection(serviceName, hub.Connected, nil)
+	var connectionStatus hub.ConnectionStatus = hub.Connected
 
 	dataHandler := func(pos Position) {
-
 		ps.mu.Lock()
 		defer ps.mu.Unlock()
 
-		//Позиция закрыта  // TODO пока пытаюсь уловить закрытие по этим состояним, надо анализировать
+		if connectionStatus == hub.Disconnected {
+			ps.hub.UpdateConnection(serviceName, hub.Connected, nil)
+			connectionStatus = hub.Connected
+		}
+
+		// Удаление позиции
 		if pos.Size == 0 && pos.CumRealisedPnl != 0 {
 			delete(ps.position, pos.Symbol)
-			go ps.DeleteSubscribeTicker(pos.Symbol)
-			ps.log.Info("position closed", "symbol", pos.Symbol, "realised_pnl", pos.CumRealisedPnl)
+			ps.DeleteSubscribeTicker(pos.Symbol)
+			ps.log.Info("position closed", "symbol", pos.Symbol)
 			return
 		}
 
+		// Добавление/обновление позиции
 		if pos.Size != 0 && pos.Side != "" {
-			// Обновляем или добавляем позицию
 			existing, exists := ps.position[pos.Symbol]
 			if exists {
 				existing.Side = pos.Side
@@ -156,43 +187,60 @@ func (ps *PositionService) SubscribePositionStart(ctx context.Context) error {
 
 				ps.log.Info("new position detected", "symbol", pos.Symbol, "side", pos.Side, "size", pos.Size)
 
-				go func() {
-					if err := ps.AddSubscribeTicker(ctx, pos.Symbol); err != nil {
-						ps.log.Error("failed to subscribe to ticker for new position", "symbol", pos.Symbol, "error", err)
-					} else {
-						ps.log.Info("ticker subscription started for new position", "symbol", pos.Symbol)
-					}
-				}()
+				if err := ps.AddSubscribeTicker(ctx, pos.Symbol); err != nil {
+					ps.tickerStreamErrorCritical <- err
+				}
 			}
 		}
 	}
 
-	errHandler := func(err error) {
-		ps.log.Error("position stream error", "error", err)
+	errHandler := func(err error, critical bool) {
+		if !critical {
+			ps.log.Error("position stream error", "error", err)
+		} else {
+			ps.positionStreamErrorCritical <- err
+			ps.hub.UpdateConnection(serviceName, hub.Disconnected, err)
+			connectionStatus = hub.Disconnected
+		}
 	}
 
-	if err := ps.exchange.SubscribePositionStart(ctx, dataHandler, errHandler); err != nil {
-		ps.log.Error("failed to start position subscription", "error", err)
-		return fmt.Errorf("failed to subscribe position stream: %w", err)
-	}
-	ps.log.Info("position stream subscription started successfully")
-	return nil
-}
-
-// Подписка на обновления тикеров для обновления цены
-func (ps *PositionService) SubscribeTickerStart(ctx context.Context, symbol string) (func() error, error) {
-	if ps.exchange == nil {
-		return nil, fmt.Errorf("exchange client is not initialized")
+	unsubscribe, err := ps.exchange.SubscribePositionStart(ctx, dataHandler, errHandler)
+	if err != nil {
+		return nil, fmt.Errorf("failed to subscribe position stream: %w", err)
 	}
 
 	ps.wg.Add(1)
+	wrappedUnsubscribe := func() error {
+		defer ps.wg.Done()
 
-	ps.log.Debug("starting ticker subscription", "symbol", symbol)
+		ps.hub.RemoveConnection(serviceName)
+		if err := unsubscribe(); err != nil {
+			ps.log.Error("failed to unsubscribe position")
+			return err
+		}
+
+		ps.log.Info("unsubscribed position successfully")
+		return nil
+	}
+
+	return wrappedUnsubscribe, nil
+
+}
+
+func (ps *PositionService) SubscribeTickerStart(ctx context.Context, symbol string) (func() error, error) {
+
+	serviceName := fmt.Sprintf("SubscribeTicker_%s", symbol)
+	ps.hub.UpdateConnection(serviceName, hub.Connected, nil)
+	var connectionStatus hub.ConnectionStatus = hub.Connected
 
 	dataHandler := func(price float64) {
-
 		ps.mu.Lock()
 		defer ps.mu.Unlock()
+
+		if connectionStatus == hub.Disconnected {
+			ps.hub.UpdateConnection(serviceName, hub.Connected, nil)
+			connectionStatus = hub.Connected
+		}
 
 		existing, exists := ps.position[symbol]
 		if !exists {
@@ -214,43 +262,52 @@ func (ps *PositionService) SubscribeTickerStart(ctx context.Context, symbol stri
 		existing.UnrealisedPnl = unrealisedPnL
 	}
 
-	errHandler := func(err error) {
-		ps.log.Error("ticker stream error", "symbol", symbol, "error", err)
+	errHandler := func(err error, critical bool) {
+		if !critical {
+			ps.log.Error("ticker stream error", "symbol", symbol, "error", err)
+			ps.hub.UpdateConnection(serviceName, hub.Disconnected, err)
+			connectionStatus = hub.Disconnected
+		} else {
+			ps.tickerStreamErrorCritical <- err
+		}
 	}
 
 	unsubscribe, err := ps.exchange.SubscribeTickerStart(ctx, symbol, dataHandler, errHandler)
 	if err != nil {
-		ps.wg.Done()
-		ps.log.Error("failed to subscribe to ticker", "symbol", symbol, "error", err)
 		return nil, fmt.Errorf("failed to subscribe ticker %s: %w", symbol, err)
 	}
 
+	ps.wg.Add(1)
 	wrappedUnsubscribe := func() error {
 		defer ps.wg.Done()
 
+		ps.hub.RemoveConnection(serviceName)
 		if err := unsubscribe(); err != nil {
 			ps.log.Error("failed to unsubscribe from ticker", "symbol", symbol, "error", err)
-			return fmt.Errorf("failed to unsubscribe ticker %s: %w", symbol, err)
+			return err
 		}
 
 		ps.log.Info("unsubscribed ticker successfully", "symbol", symbol)
 		return nil
 	}
 
-	ps.log.Info("ticker subscription started", "symbol", symbol)
-
 	return wrappedUnsubscribe, nil
 }
 
 func (ps *PositionService) StopAllSubscriptions() error {
-
-	ps.log.Info("stopping all subscriptions", "ticker_count", len(ps.subscribedTickers))
 
 	for symbol, unsub := range ps.subscribedTickers {
 		if err := unsub(); err != nil {
 			ps.log.Error("failed to unsubscribe ticker", "symbol", symbol, "error", err)
 		}
 	}
+
+	if ps.subscribedPosition != nil {
+		if err := ps.subscribedPosition(); err != nil {
+			ps.log.Error("failed to unsubscribe position")
+		}
+	}
+
 	ps.wg.Wait()
 	ps.log.Info("all subscriptions stopped")
 	return nil

@@ -186,12 +186,14 @@ onUnmounted(() => {
 }
 
 .profit-count,
-.position-pnl.profit {
+.position-pnl.profit,
+.summary-item.profit {
   color: #00a86b;
 }
 
 .loss-count,
-.position-pnl.loss {
+.position-pnl.loss,
+.summary-item.loss {
   color: #ff4444;
 }
 

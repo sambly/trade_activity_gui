@@ -13,8 +13,21 @@
 <script lang="ts" setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 
+// Wails импорты
+import { GetConnectionStatus} from '../../wailsjs/go/main/App'
+
 // Реактивные данные
 const connectionStatus = ref<'connected' | 'disconnected' | 'error'>('connected')
+
+// Преобразование статусов из Go в компонент
+const mapGoStatus = (goStatus: string): 'connected' | 'disconnected' | 'error' => {
+  switch (goStatus) {
+    case 'connected': return 'connected'
+    case 'connected': return 'disconnected'
+    case 'error': return 'error'
+    default: return 'disconnected'
+  }
+}
 
 // Вычисляемые свойства
 const statusClass = computed(() => `status-${connectionStatus.value}`)
@@ -28,41 +41,38 @@ const statusTitle = computed(() => {
   }
 })
 
-// Имитация проверки соединения
-const checkConnection = () => {
-  const random = Math.random()
-  if (random > 0.8) {
+// Функция обновления статуса из Go
+const updateStatusFromGo = async () => {
+  try {
+    const status = await GetConnectionStatus()
+    connectionStatus.value = mapGoStatus(status)
+  } catch (error) {
+    console.error('Error getting connection status:', error)
     connectionStatus.value = 'error'
-  } else if (random > 0.6) {
-    connectionStatus.value = 'disconnected'
-  } else {
-    connectionStatus.value = 'connected'
   }
 }
 
 // Клик по индикатору
-const handleClick = () => {
-  checkConnection() // При клике проверяем соединение
+const handleClick = async () => {
+  await updateStatusFromGo()
 }
 
-// Таймер для периодической проверки
-let connectionTimer: number
+// Таймер для периодического обновления
+let statusTimer: number
 
 onMounted(() => {
-  connectionTimer = window.setInterval(checkConnection, 30000)
+  statusTimer = window.setInterval(updateStatusFromGo, 5000)
 })
 
 onUnmounted(() => {
-  if (connectionTimer) {
-    clearInterval(connectionTimer)
+  if (statusTimer) {
+    clearInterval(statusTimer)
   }
 })
 
 // Экспортируем методы для внешнего использования
 defineExpose({
-  updateStatus: (status: 'connected' | 'disconnected' | 'error') => {
-    connectionStatus.value = status
-  },
+  updateStatus: updateStatusFromGo,
   getStatus: () => connectionStatus.value
 })
 </script>

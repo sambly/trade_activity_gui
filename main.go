@@ -9,6 +9,7 @@ import (
 	"runtime/debug"
 	"strings"
 	"trade_activity_gui/exchange"
+	"trade_activity_gui/hub"
 	"trade_activity_gui/logger"
 
 	"github.com/joho/godotenv"
@@ -75,7 +76,10 @@ func main() {
 		slog.Default(),
 		debug,
 	)
-	dataFeed := exchange.NewDataFeed(ex, slog.Default())
+
+	hub := hub.NewHub()
+
+	dataFeed := exchange.NewDataFeed(ex, slog.Default(), hub)
 
 	app := NewApp(dataFeed, slog.Default())
 
@@ -96,6 +100,7 @@ func main() {
 		CSSDragProperty:    "widows", // Для перемещения без рамки
 		CSSDragValue:       "1",      // Для перемещения без рамки
 		AlwaysOnTop:        true,     // Окно поверх всех окон,
+		DisableResize:      true,     // Запрет изменения размера окна
 		Logger:             logger.NewWailsLoggerAdapter(slog.Default()),
 		LogLevel:           loggerWails.DEBUG,
 		LogLevelProduction: loggerWails.WARNING,

@@ -8,6 +8,7 @@ import (
 	"log"
 	"log/slog"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/hirokisan/bybit/v2"
@@ -82,7 +83,11 @@ func (b *Bybit) GetPositionInfo() ([]Position, error) {
 	return positions, nil
 }
 
-func (b *Bybit) SubscribePositionStart(ctx context.Context, onData func(pos Position), onError func(err error)) error {
+func (b *Bybit) SubscribePositionStart(ctx context.Context, onData func(pos Position), onError func(err error, critical bool)) (func() error, error) {
+
+	ctx, cancel := context.WithCancel(ctx)
+
+	b.log.Info("starting position subscription")
 
 	reconnectAttempt := 0
 	ba := &backoff.Backoff{
@@ -92,16 +97,20 @@ func (b *Bybit) SubscribePositionStart(ctx context.Context, onData func(pos Posi
 		Jitter: true,
 	}
 
-	svc, err := b.wsClient.V5().Private()
-	if err != nil {
-		return fmt.Errorf("create private ws client: %w", err)
+	var actualUnsub atomic.Value
+
+	unsubscribe := func() error {
+		f, _ := actualUnsub.Load().(func() error)
+		if f == nil {
+			return fmt.Errorf("unsubscribe not set or not connected yet")
+		}
+		// в библиотеке bybit unsubscribe не корректно отрабатывает, успевает прийти ошибка func not found, буду вызывать cancel
+		cancel()
+		return f()
+
 	}
 
-	if err := svc.Subscribe(); err != nil {
-		return fmt.Errorf("subscribe ws: %w", err)
-	}
-
-	unsubscribe, err := svc.SubscribePosition(func(msg bybit.V5WebsocketPrivatePositionResponse) error {
+	dataHandler := func(msg bybit.V5WebsocketPrivatePositionResponse) error {
 
 		for _, posEx := range msg.Data {
 			pos := Position{
@@ -118,16 +127,10 @@ func (b *Bybit) SubscribePositionStart(ctx context.Context, onData func(pos Posi
 			onData(pos)
 		}
 		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("subscribe position: %w", err)
 	}
 
 	errHandler := func(isWebsocketClosed bool, err error) {
-
-		if onError != nil {
-			onError(fmt.Errorf("websocket position error (closed=%t): %w", isWebsocketClosed, err))
-		}
+		onError(fmt.Errorf("websocket position error (closed=%t): %w", isWebsocketClosed, err), false)
 	}
 
 	go func() {
@@ -144,11 +147,35 @@ func (b *Bybit) SubscribePositionStart(ctx context.Context, onData func(pos Posi
 					case <-time.After(60 * time.Second):
 						reconnectAttempt = 0
 						ba.Reset()
-						b.log.Info("websocket position connection stable, reset reconnect attempts")
+						b.log.Info("websocket position connection stable")
+						// Позиция редко шлет данные для обновления, поэтому для обновления статуса hub.Connected
+						onData(Position{})
 					case <-timerCtx.Done():
 						return
 					}
 				}()
+
+				svc, err := b.wsClient.V5().Private()
+				if err != nil {
+					onError(fmt.Errorf("create private ws client: %w", err), true)
+					startDone <- err
+					return
+				}
+
+				if err := svc.Subscribe(); err != nil {
+					onError(fmt.Errorf("subscribe ws: %w", err), true)
+					startDone <- err
+					return
+				}
+
+				unsub, err := svc.SubscribePosition(dataHandler)
+				if err != nil {
+					onError(fmt.Errorf("subscribe position: %w", err), true)
+					startDone <- err
+					return
+				}
+
+				actualUnsub.Store(unsub)
 
 				startDone <- svc.Start(ctx, errHandler)
 				cancelTimer()
@@ -159,30 +186,20 @@ func (b *Bybit) SubscribePositionStart(ctx context.Context, onData func(pos Posi
 				return
 			case err := <-startDone:
 				if err != nil {
-
-					if onError != nil {
-						onError(fmt.Errorf("websocket position start error: %w", err))
-					}
+					onError(fmt.Errorf("websocket position start error: %w", err), false)
 				}
-
 				select {
 				case <-ctx.Done():
 					return
 				default:
 					reconnectAttempt++
 					if reconnectAttempt >= maxReconnectAttempts {
-
-						if onError != nil {
-							onError(fmt.Errorf("websocket position max reconnection attempts reached (%d)", maxReconnectAttempts))
-						}
+						onError(fmt.Errorf("websocket position max reconnection attempts reached (%d)", maxReconnectAttempts), true)
 						return
 					}
 
 					delay := ba.Duration()
-					b.log.Info("reconnecting websocket",
-						"attempt", reconnectAttempt,
-						"delay", delay)
-
+					b.log.Info("reconnecting websocket", "attempt", reconnectAttempt, "delay", delay)
 					time.Sleep(delay)
 					continue
 				}
@@ -190,12 +207,13 @@ func (b *Bybit) SubscribePositionStart(ctx context.Context, onData func(pos Posi
 		}
 	}()
 
-	b.log.Info("position subscription started successfully")
-	_ = unsubscribe
-	return nil
+	return unsubscribe, nil
 }
 
-func (b *Bybit) SubscribeTickerStart(ctx context.Context, symbol string, onData func(price float64), onError func(err error)) (func() error, error) {
+func (b *Bybit) SubscribeTickerStart(ctx context.Context, symbol string, onData func(price float64), onError func(err error, critical bool)) (func() error, error) {
+
+	ctx, cancel := context.WithCancel(ctx)
+
 	b.log.Info("starting ticker subscription", "symbol", symbol)
 
 	reconnectAttempt := 0
@@ -206,33 +224,31 @@ func (b *Bybit) SubscribeTickerStart(ctx context.Context, symbol string, onData 
 		Jitter: true,
 	}
 
-	pubSvc, err := b.wsClient.V5().Public(bybit.CategoryV5Linear)
-	if err != nil {
-		return nil, fmt.Errorf("create public ws client: %w", err)
+	var actualUnsub atomic.Value
+
+	unsubscribe := func() error {
+		f, _ := actualUnsub.Load().(func() error)
+		if f == nil {
+			return fmt.Errorf("unsubscribe not set or not connected yet")
+		}
+		// в библиотеке bybit unsubscribe не корректно отрабатывает, успевает прийти ошибка func not found, буду вызывать cancel
+		cancel()
+		return f()
 	}
 
-	unsubscribe, err := pubSvc.SubscribeTicker(
-		bybit.V5WebsocketPublicTickerParamKey{Symbol: bybit.SymbolV5(symbol)},
-		func(msg bybit.V5WebsocketPublicTickerResponse) error {
-
-			if msg.Data.LinearInverse.LastPrice != "" {
-				price, err := strconv.ParseFloat(msg.Data.LinearInverse.LastPrice, 64)
-				if err != nil {
-					return nil
-				}
-				onData(price)
+	dataHandler := func(msg bybit.V5WebsocketPublicTickerResponse) error {
+		if msg.Data.LinearInverse.LastPrice != "" {
+			price, err := strconv.ParseFloat(msg.Data.LinearInverse.LastPrice, 64)
+			if err != nil {
+				return nil
 			}
-			return nil
-		},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("subscribe ticker %s: %w", symbol, err)
+			onData(price)
+		}
+		return nil
 	}
 
 	errHandler := func(isWebsocketClosed bool, err error) {
-		if onError != nil {
-			onError(fmt.Errorf("websocket ticker error (closed=%t, symbol=%s): %w", isWebsocketClosed, symbol, err))
-		}
+		onError(fmt.Errorf("websocket ticker error (closed=%t, symbol=%s): %w", isWebsocketClosed, symbol, err), false)
 	}
 
 	go func() {
@@ -249,13 +265,29 @@ func (b *Bybit) SubscribeTickerStart(ctx context.Context, symbol string, onData 
 					case <-time.After(60 * time.Second):
 						reconnectAttempt = 0
 						ba.Reset()
-						b.log.Debug("websocket ticker connection stable", "symbol", symbol)
+						b.log.Info("websocket ticker connection stable", "symbol", symbol)
 					case <-timerCtx.Done():
 						return
 					}
 				}()
 
-				startDone <- pubSvc.Start(ctx, errHandler)
+				svc, err := b.wsClient.V5().Public(bybit.CategoryV5Linear)
+				if err != nil {
+					onError(fmt.Errorf("create public ws client: %w", err), true)
+					startDone <- err
+					return
+				}
+
+				unsub, err := svc.SubscribeTicker(bybit.V5WebsocketPublicTickerParamKey{Symbol: bybit.SymbolV5(symbol)}, dataHandler)
+				if err != nil {
+					onError(fmt.Errorf("subscribe ticker %s: %w", symbol, err), true)
+					startDone <- err
+					return
+				}
+
+				actualUnsub.Store(unsub)
+
+				startDone <- svc.Start(ctx, errHandler)
 				cancelTimer()
 			}()
 
@@ -264,31 +296,20 @@ func (b *Bybit) SubscribeTickerStart(ctx context.Context, symbol string, onData 
 				return
 			case err := <-startDone:
 				if err != nil {
-
-					if onError != nil {
-						onError(fmt.Errorf("websocket ticker start error (symbol=%s): %w", symbol, err))
-					}
+					onError(fmt.Errorf("websocket ticker start error (symbol=%s): %w", symbol, err), false)
 				}
-
 				select {
 				case <-ctx.Done():
 					return
 				default:
 					reconnectAttempt++
 					if reconnectAttempt >= maxReconnectAttempts {
-
-						if onError != nil {
-							onError(fmt.Errorf("websocket ticker max reconnection attempts reached (%d, symbol=%s)", maxReconnectAttempts, symbol))
-						}
+						onError(fmt.Errorf("websocket ticker max reconnection attempts reached (%d, symbol=%s)", maxReconnectAttempts, symbol), true)
 						return
 					}
 
 					delay := ba.Duration()
-					b.log.Info("reconnecting ticker websocket",
-						"symbol", symbol,
-						"attempt", reconnectAttempt,
-						"delay", delay)
-
+					b.log.Info("reconnecting ticker websocket", "symbol", symbol, "attempt", reconnectAttempt, "delay", delay)
 					time.Sleep(delay)
 					continue
 				}
@@ -296,15 +317,5 @@ func (b *Bybit) SubscribeTickerStart(ctx context.Context, symbol string, onData 
 		}
 	}()
 
-	b.log.Info("ticker subscription started", "symbol", symbol)
-
-	wrappedUnsubscribe := func() error {
-		if err := unsubscribe(); err != nil {
-			return fmt.Errorf("unsubscribe ticker %s: %w", symbol, err)
-		}
-		b.log.Info("ticker unsubscribed", "symbol", symbol)
-		return nil
-	}
-
-	return wrappedUnsubscribe, nil
+	return unsubscribe, nil
 }
