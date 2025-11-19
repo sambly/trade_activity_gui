@@ -81,7 +81,7 @@ func main() {
 
 	dataFeed := exchange.NewDataFeed(ex, slog.Default(), hub)
 
-	app := NewApp(dataFeed, slog.Default())
+	app := NewApp(dataFeed, slog.Default(), hub)
 
 	err = wails.Run(&options.App{
 		Title:  "",

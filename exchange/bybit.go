@@ -199,7 +199,7 @@ func (b *Bybit) SubscribePositionStart(ctx context.Context, onData func(pos Posi
 					}
 
 					delay := ba.Duration()
-					b.log.Info("reconnecting websocket", "attempt", reconnectAttempt, "delay", delay)
+					b.log.Info("reconnecting position websocket", "attempt", reconnectAttempt, "delay", delay)
 					time.Sleep(delay)
 					continue
 				}

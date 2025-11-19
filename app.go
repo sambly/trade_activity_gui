@@ -16,10 +16,10 @@ type App struct {
 	dataFeed *exchange.DataFeed
 }
 
-func NewApp(dataFeed *exchange.DataFeed, logger *slog.Logger) *App {
+func NewApp(dataFeed *exchange.DataFeed, logger *slog.Logger, hub *hub.Hub) *App {
 	return &App{
 		log:      logger.With("component", "app"),
-		hub:      hub.NewHub(),
+		hub:      hub,
 		dataFeed: dataFeed,
 	}
 }

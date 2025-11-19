@@ -145,7 +145,7 @@ func (ps *PositionService) Start(ctx context.Context) error {
 func (ps *PositionService) SubscribePositionStart(ctx context.Context) (func() error, error) {
 
 	serviceName := "SubscribePosition"
-	ps.hub.UpdateConnection(serviceName, hub.Connected, nil)
+	ps.hub.AddConnection(serviceName, hub.Connected, nil)
 	var connectionStatus hub.ConnectionStatus = hub.Connected
 
 	dataHandler := func(pos Position) {
@@ -199,9 +199,9 @@ func (ps *PositionService) SubscribePositionStart(ctx context.Context) (func() e
 			ps.log.Error("position stream error", "error", err)
 		} else {
 			ps.positionStreamErrorCritical <- err
-			ps.hub.UpdateConnection(serviceName, hub.Disconnected, err)
-			connectionStatus = hub.Disconnected
 		}
+		ps.hub.UpdateConnection(serviceName, hub.Disconnected, err)
+		connectionStatus = hub.Disconnected
 	}
 
 	unsubscribe, err := ps.exchange.SubscribePositionStart(ctx, dataHandler, errHandler)
@@ -230,7 +230,7 @@ func (ps *PositionService) SubscribePositionStart(ctx context.Context) (func() e
 func (ps *PositionService) SubscribeTickerStart(ctx context.Context, symbol string) (func() error, error) {
 
 	serviceName := fmt.Sprintf("SubscribeTicker_%s", symbol)
-	ps.hub.UpdateConnection(serviceName, hub.Connected, nil)
+	ps.hub.AddConnection(serviceName, hub.Connected, nil)
 	var connectionStatus hub.ConnectionStatus = hub.Connected
 
 	dataHandler := func(price float64) {
@@ -265,11 +265,11 @@ func (ps *PositionService) SubscribeTickerStart(ctx context.Context, symbol stri
 	errHandler := func(err error, critical bool) {
 		if !critical {
 			ps.log.Error("ticker stream error", "symbol", symbol, "error", err)
-			ps.hub.UpdateConnection(serviceName, hub.Disconnected, err)
-			connectionStatus = hub.Disconnected
 		} else {
 			ps.tickerStreamErrorCritical <- err
 		}
+		ps.hub.UpdateConnection(serviceName, hub.Disconnected, err)
+		connectionStatus = hub.Disconnected
 	}
 
 	unsubscribe, err := ps.exchange.SubscribeTickerStart(ctx, symbol, dataHandler, errHandler)

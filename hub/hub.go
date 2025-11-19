@@ -1,6 +1,9 @@
 package hub
 
-import "sync"
+import (
+	"fmt"
+	"sync"
+)
 
 type ConnectionStatus string
 
@@ -41,17 +44,25 @@ func (h *Hub) GetStatus() ConnectionStatus {
 	return h.status
 }
 
+func (h *Hub) AddConnection(service string, status ConnectionStatus, err error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	h.connections[service] = &ConnectionInfo{
+		Service:   service,
+		Status:    status,
+		LastError: err,
+	}
+}
+
 func (h *Hub) UpdateConnection(service string, status ConnectionStatus, err error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	if h.connections[service] == nil {
-		h.connections[service] = &ConnectionInfo{}
+	if conn, exists := h.connections[service]; exists {
+		conn.Status = status
+		conn.LastError = err
 	}
-
-	h.connections[service].Service = service
-	h.connections[service].Status = status
-	h.connections[service].LastError = err
 }
 
 func (h *Hub) GetConnectionStatus(service string) *ConnectionInfo {
@@ -103,4 +114,19 @@ func (h *Hub) RemoveConnection(service string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	delete(h.connections, service)
+}
+
+func (h *Hub) DebugConnections() {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	fmt.Printf("=== Connections Debug ===\n")
+	fmt.Printf("Total connections: %d\n", len(h.connections))
+	fmt.Printf("Global status: %v\n", h.status)
+
+	for service, conn := range h.connections {
+		fmt.Printf("  %s: Status=%v, Error=%v\n",
+			service, conn.Status, conn.LastError)
+	}
+	fmt.Printf("=========================\n")
 }
