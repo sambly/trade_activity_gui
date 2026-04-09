@@ -41,4 +41,4 @@ require (
 	golang.org/x/text v0.22.0 // indirect
 )
 
-// replace github.com/wailsapp/wails/v2 v2.10.2 => C:\Users\Kudrjavcev.EA\go\pkg\mod
+replace github.com/hirokisan/bybit/v2 => github.com/sambly/bybit/v2 v2.0.0-20260409120734-6c8c074ccb7b

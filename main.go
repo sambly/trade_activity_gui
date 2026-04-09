@@ -70,12 +70,17 @@ func main() {
 		panic("EXCHANGE_BYBIT_API_KEY and EXCHANGE_BYBIT_SECRET_KEY must be set")
 	}
 
-	ex := exchange.NewBybit(
+	ex, err := exchange.NewBybit(
 		APIKey,
 		APISecret,
 		slog.Default(),
 		debug,
 	)
+
+	if err != nil {
+		slog.Error("Failed to create Bybit exchange", "error", err)
+		panic(fmt.Sprintf("Failed to create Bybit exchange: %v", err))
+	}
 
 	hub := hub.NewHub()
 
