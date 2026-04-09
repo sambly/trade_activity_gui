@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"time"
 )
@@ -88,4 +89,31 @@ func (w *WailsLoggerAdapter) Error(message string)   { w.l.Error(message) }
 func (w *WailsLoggerAdapter) Fatal(message string) {
 	w.l.Error(message)
 	os.Exit(1)
+}
+
+var sensitivePatterns = []*regexp.Regexp{
+	// X-Bapi-Api-Key:[abc123]
+	regexp.MustCompile(`(?i)(X-Bapi-Api-Key:\[)([^\]]+)(\])`),
+
+	// X-Bapi-Sign:[abcdef...]
+	regexp.MustCompile(`(?i)(X-Bapi-Sign:\[)([^\]]+)(\])`),
+
+	// apiKey=abc123 или apiKey: abc123
+	regexp.MustCompile(`(?i)(api[-_]?key["']?\s*[:=]\s*["']?)([^"'\s]+)`),
+
+	// secret=xxxx
+	regexp.MustCompile(`(?i)(secret["']?\s*[:=]\s*["']?)([^"'\s]+)`),
+
+	// Authorization: Bearer xxx
+	regexp.MustCompile(`(?i)(Authorization:\s*Bearer\s+)(\S+)`),
+}
+
+func MaskSensitive(input string) string {
+	masked := input
+
+	for _, re := range sensitivePatterns {
+		masked = re.ReplaceAllString(masked, "${1}***${3}")
+	}
+
+	return masked
 }

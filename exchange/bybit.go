@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"sync/atomic"
 	"time"
+	"trade_activity_gui/logger"
 
 	"github.com/hirokisan/bybit/v2"
 	"github.com/jpillora/backoff"
@@ -26,7 +27,9 @@ func createLogAdapter(slogLogger *slog.Logger) *log.Logger {
 		defer reader.Close()
 		scanner := bufio.NewScanner(reader)
 		for scanner.Scan() {
-			slogLogger.Info(scanner.Text())
+			line := scanner.Text()
+			line = logger.MaskSensitive(line)
+			slogLogger.Info(line)
 		}
 	}()
 
@@ -39,16 +42,22 @@ type Bybit struct {
 	wsClient *bybit.WebSocketClient
 }
 
-func NewBybit(key, secret string, logger *slog.Logger, debug bool) *Bybit {
+func NewBybit(key, secret string, logger *slog.Logger, debug bool) (*Bybit, error) {
 
 	client := bybit.NewClient().WithAuth(key, secret).WithLogger(createLogAdapter(logger)).WithDebug(debug)
 	wsClient := bybit.NewWebsocketClient().WithAuth(key, secret).WithLogger(createLogAdapter(logger)).WithDebug(debug)
+
+	timeOffset, err := client.SyncServerTime()
+	if err != nil {
+		return nil, fmt.Errorf("sync server time: %w", err)
+	}
+	wsClient.UpdateTimeDelta(timeOffset)
 
 	return &Bybit{
 		log:      logger.With("component", "bybit"),
 		client:   client,
 		wsClient: wsClient,
-	}
+	}, nil
 }
 
 func (b *Bybit) GetPositionInfo() ([]Position, error) {
