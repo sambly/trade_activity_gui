@@ -78,8 +78,9 @@ func (b *Bybit) GetPositionInfo() ([]Position, error) {
 	for _, posEx := range resp.Result.List {
 		pos := Position{
 			Symbol:      string(posEx.Symbol),
-			Side:        string(posEx.Side),
 			CreatedTime: posEx.CreatedTime,
+			PositionIdx: posEx.PositionIdx,
+			Side:        string(posEx.Side),
 		}
 
 		pos.Size, _ = strconv.ParseFloat(posEx.Size, 64)
@@ -122,16 +123,18 @@ func (b *Bybit) SubscribePositionStart(ctx context.Context, onData func(pos Posi
 	dataHandler := func(msg bybit.V5WebsocketPrivatePositionResponse) error {
 
 		for _, posEx := range msg.Data {
+
 			pos := Position{
 				Symbol:      string(posEx.Symbol),
-				Side:        string(posEx.Side),
 				CreatedTime: posEx.CreatedTime,
+				UpdatedTime: posEx.UpdatedTime,
+				PositionIdx: int(posEx.PositionIdx),
+				Side:        string(posEx.Side),
 			}
 
 			pos.Size, _ = strconv.ParseFloat(posEx.Size, 64)
 			pos.EntryPrice, _ = strconv.ParseFloat(posEx.EntryPrice, 64)
 			pos.UnrealisedPnl, _ = strconv.ParseFloat(posEx.UnrealisedPnl, 64)
-			pos.CumRealisedPnl, _ = strconv.ParseFloat(posEx.CumRealisedPnl, 64)
 
 			onData(pos)
 		}

@@ -9,15 +9,16 @@ import (
 )
 
 type Position struct {
-	Symbol         string
-	CreatedTime    string
-	Side           string
-	Size           float64
-	EntryPrice     float64
-	UnrealisedPnl  float64
-	CumRealisedPnl float64
-	CurrentPrice   float64
-	CurrentValue   float64
+	Symbol        string
+	CreatedTime   string
+	UpdatedTime   string
+	PositionIdx   int
+	Side          string
+	Size          float64
+	EntryPrice    float64
+	UnrealisedPnl float64
+	CurrentPrice  float64
+	CurrentValue  float64
 }
 
 type PositionService struct {
@@ -26,8 +27,9 @@ type PositionService struct {
 	exchange Exchange
 	hub      *hub.Hub
 
-	mu       sync.RWMutex
-	position map[string]*Position
+	mu            sync.RWMutex
+	positionLong  map[string]*Position
+	positionShort map[string]*Position
 
 	// Подписки на тикеры с функцией отписки
 	subscribedTickers  map[string]func() error
@@ -43,7 +45,8 @@ func NewPositionService(exchange Exchange, logger *slog.Logger, hub *hub.Hub) *P
 		log:                         logger.With("component", "PositionService"),
 		exchange:                    exchange,
 		hub:                         hub,
-		position:                    make(map[string]*Position),
+		positionLong:                make(map[string]*Position),
+		positionShort:               make(map[string]*Position),
 		subscribedTickers:           make(map[string]func() error),
 		positionStreamErrorCritical: make(chan error, 1),
 		tickerStreamErrorCritical:   make(chan error, 1),
@@ -54,17 +57,28 @@ func (ps *PositionService) GetAllPosition() []Position {
 	ps.mu.RLock()
 	defer ps.mu.RUnlock()
 
-	positions := make([]Position, 0, len(ps.position))
-	for _, pos := range ps.position {
+	positions := make([]Position, 0, len(ps.positionLong)+len(ps.positionShort))
+	for _, pos := range ps.positionLong {
 		positions = append(positions, *pos)
 	}
+	for _, pos := range ps.positionShort {
+		positions = append(positions, *pos)
+	}
+
 	return positions
 }
 
 func (ps *PositionService) AddPosition(pos *Position) {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
-	ps.position[pos.Symbol] = pos
+	if pos.Side == "Buy" {
+		ps.positionLong[pos.Symbol] = pos
+	} else if pos.Side == "Sell" {
+		ps.positionShort[pos.Symbol] = pos
+	} else {
+		ps.log.Warn("unknown position side, skipping add", "symbol", pos.Symbol, "side", pos.Side)
+		return
+	}
 	ps.log.Info("position added", "symbol", pos.Symbol, "side", pos.Side, "size", pos.Size)
 }
 
@@ -108,7 +122,12 @@ func (ps *PositionService) Init(ctx context.Context) error {
 		ps.AddPosition(newPos)
 	}
 
-	for _, pos := range ps.position {
+	for _, pos := range ps.positionLong {
+		if err := ps.AddSubscribeTicker(ctx, pos.Symbol); err != nil {
+			return fmt.Errorf("failed subscribe to ticker %s: %W", pos.Symbol, err)
+		}
+	}
+	for _, pos := range ps.positionShort {
 		if err := ps.AddSubscribeTicker(ctx, pos.Symbol); err != nil {
 			return fmt.Errorf("failed subscribe to ticker %s: %W", pos.Symbol, err)
 		}
@@ -157,41 +176,68 @@ func (ps *PositionService) SubscribePositionStart(ctx context.Context) (func() e
 			connectionStatus = hub.Connected
 		}
 
-		// Удаление позиции
-		if pos.Size == 0 && pos.CumRealisedPnl != 0 {
-			delete(ps.position, pos.Symbol)
-			ps.DeleteSubscribeTicker(pos.Symbol)
-			ps.log.Info("position closed", "symbol", pos.Symbol)
+		// определяем сторону по positionIdx (buy, sell )
+		var target map[string]*Position
+
+		switch pos.PositionIdx {
+		case 1:
+			target = ps.positionLong
+		case 2:
+			target = ps.positionShort
+		default:
 			return
 		}
 
-		// Добавление/обновление позиции
-		if pos.Size != 0 && pos.Side != "" {
-			existing, exists := ps.position[pos.Symbol]
+		existing, exists := target[pos.Symbol]
+
+		// Игнор старых апдейтов
+		if exists && pos.UpdatedTime < existing.UpdatedTime {
+			return
+		}
+
+		// Закрытие позиции
+		if pos.Size == 0 {
 			if exists {
-				existing.Side = pos.Side
-				existing.Size = pos.Size
-				existing.EntryPrice = pos.EntryPrice
-
-				ps.log.Debug("position updated", "symbol", pos.Symbol, "side", pos.Side, "size", pos.Size)
-
-			} else {
-				ps.position[pos.Symbol] = &Position{
-					Symbol:        pos.Symbol,
-					CreatedTime:   pos.CreatedTime,
-					Side:          pos.Side,
-					Size:          pos.Size,
-					EntryPrice:    pos.EntryPrice,
-					UnrealisedPnl: pos.UnrealisedPnl,
-				}
-
-				ps.log.Info("new position detected", "symbol", pos.Symbol, "side", pos.Side, "size", pos.Size)
-
-				if err := ps.AddSubscribeTicker(ctx, pos.Symbol); err != nil {
-					ps.tickerStreamErrorCritical <- err
+				delete(target, pos.Symbol)
+				ps.log.Info("position closed", "symbol", pos.Symbol, "side", pos.Side)
+				// если обе стороны пусты → можно отписаться от тикера
+				if ps.positionLong[pos.Symbol] == nil && ps.positionShort[pos.Symbol] == nil {
+					ps.DeleteSubscribeTicker(pos.Symbol)
 				}
 			}
+			return
 		}
+
+		// Добавление новой позиции
+		if !exists {
+
+			if err := ps.AddSubscribeTicker(ctx, pos.Symbol); err != nil {
+				ps.tickerStreamErrorCritical <- err
+			}
+
+			target[pos.Symbol] = &Position{
+				Symbol:        pos.Symbol,
+				CreatedTime:   pos.CreatedTime,
+				UpdatedTime:   pos.UpdatedTime,
+				PositionIdx:   pos.PositionIdx,
+				Side:          pos.Side,
+				Size:          pos.Size,
+				EntryPrice:    pos.EntryPrice,
+				UnrealisedPnl: pos.UnrealisedPnl,
+			}
+
+			ps.log.Info("new position detected", "symbol", pos.Symbol, "side", pos.Side, "size", pos.Size)
+			return
+		}
+
+		// Обновление позиции
+		existing.UpdatedTime = pos.UpdatedTime
+		existing.Side = pos.Side
+		existing.Size = pos.Size
+		existing.EntryPrice = pos.EntryPrice
+
+		ps.log.Info("position updated", "symbol", pos.Symbol, "side", pos.Side, "size", pos.Size)
+
 	}
 
 	errHandler := func(err error, critical bool) {
@@ -242,24 +288,27 @@ func (ps *PositionService) SubscribeTickerStart(ctx context.Context, symbol stri
 			connectionStatus = hub.Connected
 		}
 
-		existing, exists := ps.position[symbol]
-		if !exists {
-			return
-		}
-		existing.CurrentPrice = price
-		existing.CurrentValue = price * existing.Size
+		// =========================
+		// LONG POSITION
+		// =========================
+		if longPos, exists := ps.positionLong[symbol]; exists && longPos != nil {
 
-		var unrealisedPnL float64
-		switch existing.Side {
-		case "Buy":
-			unrealisedPnL = (price - existing.EntryPrice) * existing.Size
-		case "Sell":
-			unrealisedPnL = (existing.EntryPrice - price) * existing.Size
-		default:
-			unrealisedPnL = 0
+			longPos.CurrentPrice = price
+			longPos.CurrentValue = price * longPos.Size
+
+			longPos.UnrealisedPnl = (price - longPos.EntryPrice) * longPos.Size
 		}
 
-		existing.UnrealisedPnl = unrealisedPnL
+		// =========================
+		// SHORT POSITION
+		// =========================
+		if shortPos, exists := ps.positionShort[symbol]; exists && shortPos != nil {
+
+			shortPos.CurrentPrice = price
+			shortPos.CurrentValue = price * shortPos.Size
+
+			shortPos.UnrealisedPnl = (shortPos.EntryPrice - price) * shortPos.Size
+		}
 	}
 
 	errHandler := func(err error, critical bool) {

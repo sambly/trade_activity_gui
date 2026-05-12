@@ -23,6 +23,7 @@
         v-for="position in positions" 
         :key="position.Symbol + position.Side"
         class="position-item"
+        :class="getSideClass(position.Side)"
       >
         <div class="position-symbol">{{ getShortSymbol(position.Symbol) }}</div>
         <div class="position-size">{{ formatCompactNumber(position.CurrentValue) }}</div>
@@ -89,6 +90,12 @@ const getPnlClass = (pnl: number) => {
 
 const getShortSymbol = (symbol: string) => {
   return symbol ? symbol.replace(/USDT$/, '') : ''
+}
+
+const getSideClass = (side: string) => {
+  if (side === 'Buy') return 'position-long'
+  if (side === 'Sell') return 'position-short'
+  return ''
 }
 
 const formatNumber = (value: number) => {
@@ -202,5 +209,13 @@ onUnmounted(() => {
   color: #666;
   font-style: italic;
   padding: 8px;
+}
+
+.position-long {
+  border-left: 3px solid #00a86b;
+}
+
+.position-short {
+  border-left: 3px solid #ff4444;
 }
 </style>
