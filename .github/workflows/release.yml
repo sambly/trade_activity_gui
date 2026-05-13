@@ -1,0 +1,65 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+      - name: Build
+        run: wails build -platform windows/amd64 -skipbindings -o trade_activity_gui.exe
+
+      - name: Package as 7z
+        shell: pwsh
+        run: |
+          $root = Get-Location
+          Set-Location build/bin
+          7z a -mx=9 "$root/trade-activity-gui-${{ github.ref_name }}-windows.7z" trade_activity_gui.exe
+          Set-Location $root
+
+      - name: Generate Changelog
+        id: changelog
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $tags = git tag --sort=-version:refname
+          $prevTag = if ($tags.Count -gt 1) { $tags[1] } else { "" }
+          if ($prevTag) {
+            $log = git log "$prevTag..$tag" --oneline --no-decorate
+          } else {
+            $log = git log --oneline --no-decorate
+          }
+          "changelog<<EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          $log | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: trade-activity-gui-*.7z
+          body: |
+            ## Release ${{ github.ref_name }}
+
+            ### Changes since last release:
+            ${{ steps.changelog.outputs.changelog }}
