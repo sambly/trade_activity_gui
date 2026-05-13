@@ -2,18 +2,21 @@
   <div class="positions-container">
     <!-- Сводная строка -->
     <div class="summary-row">
-      <div class="summary-item">
+      <div class="col-symbol">
         <span>{{ positions.length }} [</span>
         <span class="profit-count">{{ profitableCount }}</span>
         <span>/</span>
         <span class="loss-count">{{ lossCount }}</span>
         <span>]</span>
       </div>
-      <div class="summary-item">
-        <span>${{ formatNumber(totalValue) }}</span>
+      <div class="col-size">
+        <span>{{ formatNumber(totalValue) }}$</span>
       </div>
-      <div class="summary-item" :class="getPnlClass(totalUnrealisedPnl)">
-        <span>${{ formatPnl(totalUnrealisedPnl) }}</span>
+      <div class="col-pnl" :class="getPnlClass(totalUnrealisedPnl)">
+        <span>{{ formatPnl(totalUnrealisedPnl) }}$</span>
+      </div>
+      <div class="col-pnlpc" :class="getPnlClass(totalPnLPercent)">
+        <span>{{ formatPnLPercent(totalPnLPercent)+'%' }}</span>
       </div>
     </div>
 
@@ -25,10 +28,13 @@
         class="position-item"
         :class="getSideClass(position.Side)"
       >
-        <div class="position-symbol">{{ getShortSymbol(position.Symbol) }}</div>
-        <div class="position-size">{{ formatCompactNumber(position.CurrentValue) }}</div>
-        <div class="position-pnl" :class="getPnlClass(position.UnrealisedPnl)">
+        <div class="col-symbol">{{ getShortSymbol(position.Symbol) }}</div>
+        <div class="col-size">{{ formatCompactNumber(position.CurrentValue) }}</div>
+        <div class="col-pnl" :class="getPnlClass(position.UnrealisedPnl)">
           {{ formatPnl(position.UnrealisedPnl) }}
+        </div>
+        <div class="col-pnlpc" :class="getPnlClass(getPnLPercent(position))">
+          {{ formatPnLPercent(getPnLPercent(position)) }}
         </div>
       </div>
       
@@ -64,6 +70,16 @@ const totalValue = computed(() => {
 
 const totalUnrealisedPnl = computed(() => {
   return positions.value.reduce((sum, position) => sum + position.UnrealisedPnl, 0)
+})
+
+const totalInvestment = computed(() => {
+  return positions.value.reduce((sum, position) => sum + Math.abs(position.EntryPrice * position.Size), 0)
+})
+
+const totalPnLPercent = computed(() => {
+  const inv = totalInvestment.value
+  if (inv === 0) return 0
+  return (totalUnrealisedPnl.value / inv) * 100
 })
 
 const loadPositions = async () => {
@@ -124,6 +140,16 @@ const formatPnl = (pnl: number) => {
   return formatNumber(pnl)
 }
 
+const getPnLPercent = (position: Position): number => {
+  const investment = Math.abs(position.EntryPrice * position.Size)
+  if (investment === 0) return 0
+  return (position.UnrealisedPnl / investment) * 100
+}
+
+const formatPnLPercent = (percent: number): string => {
+  return percent.toFixed(2)
+}
+
 onMounted(() => {
   loadPositions()
   intervalId = window.setInterval(loadPositions, 5000)
@@ -135,87 +161,88 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+
 .positions-container {
-  width: 100%;
-  height: 100%;
   display: flex;
   flex-direction: column;
-}
 
-.summary-row {
-  display: flex;
-  justify-content: space-between;
-  margin-bottom: 2px;
-  padding: 1px 4px;
-  border-radius: 2px;
-  font-weight: bold;
-  border-bottom: 1px solid #e0e0e0;
-  min-height: 14px;
-}
-
-.summary-item {
-  display: flex;
-  align-items: center;
+  width: 100%;
+  height: 100%;
 }
 
 .positions-list {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
 }
 
+.summary-row,
 .position-item {
-  display: flex;
-  justify-content: space-between;
-  padding: 2px 4px;
-  margin-bottom: 1px;
-  border-radius: 2px;
+  display: grid;
+  grid-template-columns: 40px 40px 40px 40px;
 }
 
-.position-item:hover {
-  background: #f0f0f0;
-}
-
-.position-symbol {
+.col-symbol,
+.col-size,
+.col-pnl,
+.col-pnlpc {
   font-weight: bold;
-  min-width: 40px;
+  padding: 2px 6px;
+  min-width: 0;
+
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+
+  display: flex;
+  align-items: center;
+
+  justify-content: center;
+}
+
+.col-symbol {
+  justify-content: flex-start;
   text-align: left;
 }
 
-.position-size {
-  min-width: 40px;
-  text-align: center;
+.position-item {
+  transition: background 0.15s;
 }
 
-.position-pnl {
-  min-width: 40px;
-  text-align: right;
-  font-weight: bold;
+.position-item:hover {
+  background:rgba(195, 228, 186, 0.5);
+}
+
+.summary-row {
+  border-bottom: 1px solid #e0e0e0;
 }
 
 .profit-count,
-.position-pnl.profit,
-.summary-item.profit {
+.col-pnl.profit,
+.col-pnlpc.profit {
   color: #00a86b;
 }
 
 .loss-count,
-.position-pnl.loss,
-.summary-item.loss {
+.col-pnl.loss,
+.col-pnlpc.loss {
   color: #ff4444;
 }
 
-.no-positions {
-  text-align: center;
-  color: #666;
-  font-style: italic;
-  padding: 8px;
-}
-
-.position-long {
+/* граница слева */
+.position-long > .col-symbol {
   border-left: 3px solid #00a86b;
 }
 
-.position-short {
+.position-short > .col-symbol {
   border-left: 3px solid #ff4444;
+}
+
+/* пустое состояние */
+.no-positions {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 10px;
+  color: #777;
 }
 </style>

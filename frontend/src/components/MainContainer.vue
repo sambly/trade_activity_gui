@@ -22,11 +22,10 @@ const controlPanelRef = ref<InstanceType<typeof ControlPanel>>()
 </script>
 
 <style scoped>
+
 .main-window {
-  width: 160px;
+  width: 180px;
   height: 50px;
-  border: 1px solid #ddd;
-  border-radius: 6px;
   display: flex;
   overflow: hidden;
   font-size: 10px;
