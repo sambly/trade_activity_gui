@@ -1,12 +1,20 @@
 <template>
   <div class="control-panel">
-    <!-- Просто кружочек-индикатор -->
+    <!-- Кружочек-индикатор статуса -->
     <div 
       class="status-dot"
       :class="statusClass"
       :title="statusTitle"
       @click="handleClick"
     />
+    <!-- Кнопка переключения виджета TradingView -->
+    <button 
+      class="widget-toggle-btn"
+      :title="widgetButtonTitle"
+      @click="$emit('toggle-widget')"
+    >
+      📊
+    </button>
   </div>
 </template>
 
@@ -40,6 +48,8 @@ const statusTitle = computed(() => {
     default: return 'Неизвестный статус'
   }
 })
+
+const widgetButtonTitle = computed(() => 'Переключить виджет')
 
 // Функция обновления статуса из Go
 const updateStatusFromGo = async () => {
@@ -75,6 +85,10 @@ defineExpose({
   updateStatus: updateStatusFromGo,
   getStatus: () => connectionStatus.value
 })
+
+defineEmits<{
+  (e: 'toggle-widget'): void
+}>()
 </script>
 
 <style scoped>
@@ -82,8 +96,29 @@ defineExpose({
   width: 100%;
   height: 100%;
   display: flex;
-  align-items: flex-start;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding-top: 1px;
+}
+
+.widget-toggle-btn {
+  width: 10px;
+  height: 10px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+  font-size: 8px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
   justify-content: center;
+  transition: transform 0.2s;
+}
+
+.widget-toggle-btn:hover {
+  transform: scale(1.2);
 }
 
 .status-dot {

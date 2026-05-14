@@ -27,6 +27,7 @@
         :key="position.Symbol + position.Side"
         class="position-item"
         :class="getSideClass(position.Side)"
+        @click="$emit('select-position', position.Symbol)"
       >
         <div class="col-symbol">{{ getShortSymbol(position.Symbol) }}</div>
         <div class="col-size">{{ formatCompactNumber(position.CurrentValue) }}</div>
