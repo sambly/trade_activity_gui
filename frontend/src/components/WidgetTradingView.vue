@@ -28,7 +28,7 @@ const loadWidget = (symbol: string) => {
   script.src = "https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js";
   script.async = true;
   script.innerHTML = JSON.stringify({
-    symbol: symbol.startsWith("BYBIT:") ? symbol : `BYBIT:${symbol}`,
+    symbol: `BYBIT:${symbol.replace(/^BYBIT:/, '')}.P`,
     interval: "1",
     theme: "dark",
     style: "1",

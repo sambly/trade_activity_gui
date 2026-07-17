@@ -15,9 +15,9 @@ A small always-on-top window that displays current positions and PNL in real tim
 - Bybit Futures
 
 ## Installation
-Install Wails CLI:
+Install the required version of Wails CLI (must match the project's go.mod):
 ```
-go install github.com/wailsapp/wails/v2/cmd/wails@latest
+go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
 ```
 ## Configuration
 Create a `.env` file in the project root directory with your Bybit API keys:
@@ -36,6 +36,19 @@ wails dev
 
 ## Building
 To build a redistributable, production mode package:
+
+**Option 1 — Using Make (Linux/macOS/WSL):**
 ```
+make build
+```
+
+**Option 2 — Using build.bat (Windows):**
+```
+build.bat
+```
+
+**Option 3 — Manually:**
+```
+go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
 wails build
 ```
