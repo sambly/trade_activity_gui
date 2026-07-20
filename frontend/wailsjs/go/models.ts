@@ -11,6 +11,7 @@ export namespace exchange {
 	    UnrealisedPnl: number;
 	    CurrentPrice: number;
 	    CurrentValue: number;
+	    PriceChangePercent: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new Position(source);
@@ -28,6 +29,7 @@ export namespace exchange {
 	        this.UnrealisedPnl = source["UnrealisedPnl"];
 	        this.CurrentPrice = source["CurrentPrice"];
 	        this.CurrentValue = source["CurrentValue"];
+	        this.PriceChangePercent = source["PriceChangePercent"];
 	    }
 	}
 

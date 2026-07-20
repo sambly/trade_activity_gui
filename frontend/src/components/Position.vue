@@ -22,11 +22,12 @@
 
     <!-- Список позиций -->
     <div class="positions-list">
-      <div 
-        v-for="position in positions" 
+      <div
+        v-for="position in positions"
         :key="position.Symbol + position.Side"
         class="position-item"
         :class="getSideClass(position.Side)"
+        :style="getMomentumStyle(position)"
         @click="$emit('select-position', position.Symbol)"
       >
         <div class="col-symbol">{{ getShortSymbol(position.Symbol) }}</div>
@@ -115,6 +116,39 @@ const getSideClass = (side: string) => {
   return ''
 }
 
+// Подсветка фона по скорости изменения цены (position.PriceChangePercent, % в минуту).
+// Порог насыщения и мёртвая зона согласованы с бэкендом (окно 60с в position_service.go).
+const MOMENTUM_DEADZONE = 0.05 // %/мин — ниже этого фон не подсвечивается
+const MOMENTUM_SATURATION = 0.6 // %/мин — при этой скорости фон уже максимально насыщен
+const MOMENTUM_MAX_OPACITY = 0.5
+
+const PROFIT_COLOR = '0, 168, 107'
+const LOSS_COLOR = '255, 68, 68'
+
+// Ориентируем сырое изменение цены на сторону позиции: для шорта падение цены — это рост позиции
+const getMomentum = (position: Position): number => {
+  const change = position.PriceChangePercent || 0
+  return position.Side === 'Sell' ? -change : change
+}
+
+const getMomentumStyle = (position: Position) => {
+  const momentum = getMomentum(position)
+  const magnitude = Math.abs(momentum)
+
+  if (magnitude < MOMENTUM_DEADZONE) {
+    return { '--momentum-bg': 'transparent' }
+  }
+
+  const intensity = Math.min(
+    (magnitude - MOMENTUM_DEADZONE) / (MOMENTUM_SATURATION - MOMENTUM_DEADZONE),
+    1
+  )
+  const opacity = (intensity * MOMENTUM_MAX_OPACITY).toFixed(3)
+  const color = momentum > 0 ? PROFIT_COLOR : LOSS_COLOR
+
+  return { '--momentum-bg': `rgba(${color}, ${opacity})` }
+}
+
 const formatNumber = (value: number) => {
   if (value === undefined || value === null) return '0'
   return new Intl.NumberFormat('ru-RU', {
@@ -153,7 +187,7 @@ const formatPnLPercent = (percent: number): string => {
 
 onMounted(() => {
   loadPositions()
-  intervalId = window.setInterval(loadPositions, 5000)
+  intervalId = window.setInterval(loadPositions, 1000)
 })
 
 onUnmounted(() => {
@@ -207,11 +241,13 @@ onUnmounted(() => {
 }
 
 .position-item {
-  transition: background 0.15s;
+  --momentum-bg: transparent;
+  background-color: var(--momentum-bg);
+  transition: background-color 1.2s ease-out;
 }
 
 .position-item:hover {
-  background:rgba(195, 228, 186, 0.5);
+  background-color: rgba(195, 228, 186, 0.5);
 }
 
 .summary-row {

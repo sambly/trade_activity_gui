@@ -5,20 +5,35 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"time"
 	"trade_activity_gui/hub"
 )
 
+// priceChangeWindow — окно, за которое считается скорость изменения цены.
+// minPriceSampleAge — минимальный возраст самой старой точки в окне, при котором
+// расчёт производится (иначе результат слишком шумный на коротком интервале).
+const (
+	priceChangeWindow = 60 * time.Second
+	minPriceSampleAge = 1 * time.Second
+)
+
+type pricePoint struct {
+	ts    time.Time
+	price float64
+}
+
 type Position struct {
-	Symbol        string
-	CreatedTime   string
-	UpdatedTime   string
-	PositionIdx   int
-	Side          string
-	Size          float64
-	EntryPrice    float64
-	UnrealisedPnl float64
-	CurrentPrice  float64
-	CurrentValue  float64
+	Symbol             string
+	CreatedTime        string
+	UpdatedTime        string
+	PositionIdx        int
+	Side               string
+	Size               float64
+	EntryPrice         float64
+	UnrealisedPnl      float64
+	CurrentPrice       float64
+	CurrentValue       float64
+	PriceChangePercent float64 // скорость изменения цены, % в минуту, за последние priceChangeWindow
 }
 
 type PositionService struct {
@@ -35,6 +50,9 @@ type PositionService struct {
 	subscribedTickers  map[string]func() error
 	subscribedPosition func() error
 
+	// История цен по символу для расчёта скорости изменения (PriceChangePercent)
+	priceHistory map[string][]pricePoint
+
 	positionStreamErrorCritical chan error
 	tickerStreamErrorCritical   chan error
 }
@@ -48,6 +66,7 @@ func NewPositionService(exchange Exchange, logger *slog.Logger, hub *hub.Hub) *P
 		positionLong:                make(map[string]*Position),
 		positionShort:               make(map[string]*Position),
 		subscribedTickers:           make(map[string]func() error),
+		priceHistory:                make(map[string][]pricePoint),
 		positionStreamErrorCritical: make(chan error, 1),
 		tickerStreamErrorCritical:   make(chan error, 1),
 	}
@@ -203,6 +222,7 @@ func (ps *PositionService) SubscribePositionStart(ctx context.Context) (func() e
 				// если обе стороны пусты → можно отписаться от тикера
 				if ps.positionLong[pos.Symbol] == nil && ps.positionShort[pos.Symbol] == nil {
 					ps.DeleteSubscribeTicker(pos.Symbol)
+					delete(ps.priceHistory, pos.Symbol)
 				}
 			}
 			return
@@ -273,6 +293,36 @@ func (ps *PositionService) SubscribePositionStart(ctx context.Context) (func() e
 
 }
 
+// recordPriceChange добавляет новую точку цены в скользящее окно символа,
+// вычищает устаревшие точки и возвращает скорость изменения цены в % за минуту
+// относительно самой старой точки, ещё оставшейся в окне.
+// Вызывающий код должен уже удерживать ps.mu.
+func (ps *PositionService) recordPriceChange(symbol string, price float64) float64 {
+	now := time.Now()
+
+	history := append(ps.priceHistory[symbol], pricePoint{ts: now, price: price})
+
+	cutoff := now.Add(-priceChangeWindow)
+	i := 0
+	for i < len(history) && history[i].ts.Before(cutoff) {
+		i++
+	}
+	history = history[i:]
+	ps.priceHistory[symbol] = history
+
+	if len(history) < 2 {
+		return 0
+	}
+
+	oldest := history[0]
+	elapsed := now.Sub(oldest.ts)
+	if elapsed < minPriceSampleAge || oldest.price == 0 {
+		return 0
+	}
+
+	return (price - oldest.price) / oldest.price * 100 * (60 / elapsed.Seconds())
+}
+
 func (ps *PositionService) SubscribeTickerStart(ctx context.Context, symbol string) (func() error, error) {
 
 	serviceName := fmt.Sprintf("SubscribeTicker_%s", symbol)
@@ -288,6 +338,8 @@ func (ps *PositionService) SubscribeTickerStart(ctx context.Context, symbol stri
 			connectionStatus = hub.Connected
 		}
 
+		changePercent := ps.recordPriceChange(symbol, price)
+
 		// =========================
 		// LONG POSITION
 		// =========================
@@ -295,6 +347,7 @@ func (ps *PositionService) SubscribeTickerStart(ctx context.Context, symbol stri
 
 			longPos.CurrentPrice = price
 			longPos.CurrentValue = price * longPos.Size
+			longPos.PriceChangePercent = changePercent
 
 			longPos.UnrealisedPnl = (price - longPos.EntryPrice) * longPos.Size
 		}
@@ -306,6 +359,7 @@ func (ps *PositionService) SubscribeTickerStart(ctx context.Context, symbol stri
 
 			shortPos.CurrentPrice = price
 			shortPos.CurrentValue = price * shortPos.Size
+			shortPos.PriceChangePercent = changePercent
 
 			shortPos.UnrealisedPnl = (shortPos.EntryPrice - price) * shortPos.Size
 		}
