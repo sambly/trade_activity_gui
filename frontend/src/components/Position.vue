@@ -21,7 +21,7 @@
     </div>
 
     <!-- Список позиций -->
-    <div class="positions-list">
+    <div class="positions-list" v-if="!showWidget">
       <div
         v-for="position in positions"
         :key="position.Symbol + position.Side"
@@ -39,10 +39,15 @@
           {{ formatPnLPercent(getPnLPercent(position)) }}
         </div>
       </div>
-      
+
       <div v-if="positions.length === 0" class="no-positions">
         Нет сделок
       </div>
+    </div>
+
+    <!-- График -->
+    <div class="widget-area" v-else>
+      <WidgetTradingView :symbol="selectedSymbol" />
     </div>
   </div>
 </template>
@@ -51,8 +56,21 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { GetPositions } from '../../wailsjs/go/main/App'
 import type { exchange } from '../../wailsjs/go/models'
+import WidgetTradingView from './WidgetTradingView.vue'
 
 type Position = exchange.Position
+
+withDefaults(defineProps<{
+  showWidget?: boolean
+  selectedSymbol?: string
+}>(), {
+  showWidget: false,
+  selectedSymbol: ''
+})
+
+defineEmits<{
+  (e: 'select-position', symbol: string): void
+}>()
 
 const positions = ref<Position[]>([])
 let intervalId: number | null = null
@@ -209,6 +227,13 @@ onUnmounted(() => {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+}
+
+.widget-area {
+  flex: 1;
+  min-height: 0;
+  border: 10px solid #444;
+  box-sizing: border-box;
 }
 
 .summary-row,
