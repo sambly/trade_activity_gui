@@ -9,3 +9,15 @@ export function GetConnectionStatus() {
 export function GetPositions() {
   return window['go']['main']['App']['GetPositions']();
 }
+
+export function HideWindow() {
+  return window['go']['main']['App']['HideWindow']();
+}
+
+export function QuitApp() {
+  return window['go']['main']['App']['QuitApp']();
+}
+
+export function ShowWindow() {
+  return window['go']['main']['App']['ShowWindow']();
+}

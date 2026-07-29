@@ -3,6 +3,7 @@ module trade_activity_gui
 go 1.23
 
 require (
+	fyne.io/systray v1.12.2
 	github.com/hirokisan/bybit/v2 v2.39.0
 	github.com/joho/godotenv v1.5.1
 	github.com/jpillora/backoff v1.0.0

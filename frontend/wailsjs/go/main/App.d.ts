@@ -5,3 +5,9 @@ import {exchange} from '../models';
 export function GetConnectionStatus():Promise<string>;
 
 export function GetPositions():Promise<Array<exchange.Position>>;
+
+export function HideWindow():Promise<void>;
+
+export function QuitApp():Promise<void>;
+
+export function ShowWindow():Promise<void>;
