@@ -1,19 +1,39 @@
+:root {
+    --color-bg: #f8f9fa;
+    --color-bg-alt: rgb(199, 205, 212);
+    --color-text: rgb(155, 110, 110);
+    --color-border: #e0e0e0;
+    --color-hover-bg: rgba(195, 228, 186, 0.5);
+    --color-widget-border: #444;
+    --color-empty-text: #777;
+}
+
+:root.dark {
+    --color-bg: #33373c;
+    --color-bg-alt: #2a2d31;
+    --color-text: #d8d8d8;
+    --color-border: #4a4e54;
+    --color-hover-bg: rgba(90, 130, 100, 0.4);
+    --color-widget-border: #555;
+    --color-empty-text: #a5a5a5;
+}
+
 html {
-    background-color: rgb(199, 205, 212);
+    background-color: var(--color-bg-alt);
     text-align: center;
     color: white;
 }
 
 body {
     /* для перемещения окна без верхнего заголовка */
-    widows: 1; 
-    
+    widows: 1;
+
     margin: 0;
     padding: 0;
-    
+
     font-family: sans-serif;
-    color: rgb(155, 110, 110);
-    
+    color: var(--color-text);
+
     /* Скрытие скроллбаров */
     overflow: hidden;
     -ms-overflow-style: none;  /* IE and Edge */

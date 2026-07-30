@@ -24,7 +24,7 @@ const WIDGET_WIDTH = 500
 // +20px под шапку с позициями (summary-row), которая теперь остаётся видна поверх графика
 const WIDGET_HEIGHT = 420
 const POSITION_WIDTH = 180
-const POSITION_HEIGHT = 52
+const POSITION_HEIGHT = 46
 
 const showWidget = ref(false)
 const selectedSymbol = ref('')
@@ -54,7 +54,7 @@ const toggleWidget = () => {
   display: flex;
   overflow: hidden;
   font-size: 10px;
-  background: #f8f9fa;
+  background: var(--color-bg);
 }
 
 .content-section {
@@ -64,11 +64,12 @@ const toggleWidget = () => {
 
 .control-panel-section {
   width: 20px;
-  border-left: 1px solid #ddd;
+  border-left: 1px solid var(--color-border);
   padding-top: 4px;
   display: flex;
   flex-direction: column;
   align-items: center;
+  overflow-y: auto;
 }
 
 </style>

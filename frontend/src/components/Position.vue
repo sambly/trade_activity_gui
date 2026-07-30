@@ -232,7 +232,7 @@ onUnmounted(() => {
 .widget-area {
   flex: 1;
   min-height: 0;
-  border: 10px solid #444;
+  border: 10px solid var(--color-widget-border);
   box-sizing: border-box;
 }
 
@@ -272,11 +272,11 @@ onUnmounted(() => {
 }
 
 .position-item:hover {
-  background-color: rgba(195, 228, 186, 0.5);
+  background-color: var(--color-hover-bg);
 }
 
 .summary-row {
-  border-bottom: 1px solid #e0e0e0;
+  border-bottom: 1px solid var(--color-border);
 }
 
 .profit-count,
@@ -305,6 +305,6 @@ onUnmounted(() => {
   grid-column: 1 / -1;
   text-align: center;
   padding: 10px;
-  color: #777;
+  color: var(--color-empty-text);
 }
 </style>

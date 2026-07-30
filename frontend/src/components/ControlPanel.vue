@@ -8,21 +8,33 @@
       @click="handleClick"
     />
     <!-- Кнопка переключения виджета TradingView -->
-    <button 
+    <button
       class="widget-toggle-btn"
       :title="widgetButtonTitle"
       @click="$emit('toggle-widget')"
     >
       📊
     </button>
+
+    <!-- Кнопка переключения тёмной темы -->
+    <button
+      class="theme-toggle-btn"
+      :title="isDark ? 'Светлая тема' : 'Тёмная тема'"
+      @click="toggleTheme"
+    >
+      {{ isDark ? '☀️' : '🌙' }}
+    </button>
   </div>
 </template>
 
 <script lang="ts" setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { useTheme } from '../composables/useTheme'
 
 // Wails импорты
 import { GetConnectionStatus} from '../../wailsjs/go/main/App'
+
+const { isDark, toggleTheme } = useTheme()
 
 // Реактивные данные
 const connectionStatus = ref<'connected' | 'disconnected' | 'error'>('connected')
@@ -103,8 +115,8 @@ defineEmits<{
 }
 
 .widget-toggle-btn {
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
   border: none;
   background: transparent;
   cursor: pointer;
@@ -121,9 +133,28 @@ defineEmits<{
   transform: scale(1.2);
 }
 
+.theme-toggle-btn {
+  width: 8px;
+  height: 8px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+  font-size: 8px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.2s;
+}
+
+.theme-toggle-btn:hover {
+  transform: scale(1.2);
+}
+
 .status-dot {
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   cursor: pointer;
   transition: all 0.3s ease;
