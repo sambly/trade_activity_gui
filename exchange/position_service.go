@@ -195,7 +195,12 @@ func (ps *PositionService) SubscribePositionStart(ctx context.Context) (func() e
 			connectionStatus = hub.Connected
 		}
 
-		// определяем сторону по positionIdx (buy, sell )
+		// Определяем сторону позиции. В Hedge Mode её однозначно задаёт PositionIdx
+		// (1 = long, 2 = short). В One-Way Mode (дефолт для большинства аккаунтов)
+		// PositionIdx всегда 0 — тогда берём сторону из Side. А при полном закрытии
+		// позиции в One-Way Mode Bybit иногда отдаёт пустой Side, поэтому в этом
+		// случае определяем сторону по тому, где уже есть запись с этим символом
+		// (иначе апдейт о закрытии молча терялся бы и позиция зависала в списке).
 		var target map[string]*Position
 
 		switch pos.PositionIdx {
@@ -204,7 +209,20 @@ func (ps *PositionService) SubscribePositionStart(ctx context.Context) (func() e
 		case 2:
 			target = ps.positionShort
 		default:
-			return
+			switch pos.Side {
+			case "Buy":
+				target = ps.positionLong
+			case "Sell":
+				target = ps.positionShort
+			default:
+				if _, ok := ps.positionLong[pos.Symbol]; ok {
+					target = ps.positionLong
+				} else if _, ok := ps.positionShort[pos.Symbol]; ok {
+					target = ps.positionShort
+				} else {
+					return
+				}
+			}
 		}
 
 		existing, exists := target[pos.Symbol]

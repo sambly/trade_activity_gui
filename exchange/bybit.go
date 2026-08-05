@@ -18,6 +18,16 @@ import (
 
 const maxReconnectAttempts = 10
 
+// Demo Trading — режим Bybit с реальными рыночными данными, но виртуальным балансом.
+// У него отдельные REST/WS-хосты и отдельные API-ключи (создаются в разделе "Demo Trading"
+// личного кабинета Bybit, обычные ключи для боевой торговли тут не подойдут).
+// Публичный стрим (тикеры) у demo-домена не работает — он всегда идёт через основной wss://stream.bybit.com,
+// см. https://bybit-exchange.github.io/docs/v5/demo
+const (
+	demoRestBaseURL = "https://api-demo.bybit.com"
+	demoWSBaseURL   = "wss://stream-demo.bybit.com"
+)
+
 func createLogAdapter(slogLogger *slog.Logger) *log.Logger {
 	slogLogger = slogLogger.With("component", "bybit_lib")
 
@@ -37,26 +47,44 @@ func createLogAdapter(slogLogger *slog.Logger) *log.Logger {
 }
 
 type Bybit struct {
-	log      *slog.Logger
-	client   *bybit.Client
-	wsClient *bybit.WebSocketClient
+	log *slog.Logger
+
+	client *bybit.Client
+
+	// Публичный стрим (тикеры) у Demo Trading не работает и всегда идёт через основной хост,
+	// поэтому публичный и приватный WS-клиенты держим раздельно — в demo-режиме на разные хосты.
+	wsPublicClient  *bybit.WebSocketClient
+	wsPrivateClient *bybit.WebSocketClient
 }
 
-func NewBybit(key, secret string, logger *slog.Logger, debug bool) (*Bybit, error) {
+func NewBybit(key, secret string, logger *slog.Logger, debug bool, demo bool) (*Bybit, error) {
 
 	client := bybit.NewClient().WithAuth(key, secret).WithLogger(createLogAdapter(logger)).WithDebug(debug)
-	wsClient := bybit.NewWebsocketClient().WithAuth(key, secret).WithLogger(createLogAdapter(logger)).WithDebug(debug)
+	wsPublicClient := bybit.NewWebsocketClient().WithAuth(key, secret).WithLogger(createLogAdapter(logger)).WithDebug(debug)
+	wsPrivateClient := bybit.NewWebsocketClient().WithAuth(key, secret).WithLogger(createLogAdapter(logger)).WithDebug(debug)
 
+	// /v3/public/time не отдаёт данные на api-demo.bybit.com (пустое тело при статусе 200),
+	// поэтому синхронизируем время по основному хосту — смещение системных часов от того,
+	// на какой хост потом переключимся для торговли, не зависит. WithBaseURL меняет baseURL
+	// у того же клиента, не затрагивая уже посчитанное смещение времени.
 	timeOffset, err := client.SyncServerTime()
 	if err != nil {
 		return nil, fmt.Errorf("sync server time: %w", err)
 	}
-	wsClient.UpdateTimeDelta(timeOffset)
+	wsPublicClient.UpdateTimeDelta(timeOffset)
+	wsPrivateClient.UpdateTimeDelta(timeOffset)
+
+	if demo {
+		client = client.WithBaseURL(demoRestBaseURL)
+		wsPrivateClient = wsPrivateClient.WithBaseURL(demoWSBaseURL)
+		logger.Info("bybit demo trading mode enabled", "restBaseURL", demoRestBaseURL, "wsPrivateBaseURL", demoWSBaseURL)
+	}
 
 	return &Bybit{
-		log:      logger.With("component", "bybit"),
-		client:   client,
-		wsClient: wsClient,
+		log:             logger.With("component", "bybit"),
+		client:          client,
+		wsPublicClient:  wsPublicClient,
+		wsPrivateClient: wsPrivateClient,
 	}, nil
 }
 
@@ -167,7 +195,7 @@ func (b *Bybit) SubscribePositionStart(ctx context.Context, onData func(pos Posi
 					}
 				}()
 
-				svc, err := b.wsClient.V5().Private()
+				svc, err := b.wsPrivateClient.V5().Private()
 				if err != nil {
 					onError(fmt.Errorf("create private ws client: %w", err), true)
 					startDone <- err
@@ -283,7 +311,7 @@ func (b *Bybit) SubscribeTickerStart(ctx context.Context, symbol string, onData 
 					}
 				}()
 
-				svc, err := b.wsClient.V5().Public(bybit.CategoryV5Linear)
+				svc, err := b.wsPublicClient.V5().Public(bybit.CategoryV5Linear)
 				if err != nil {
 					onError(fmt.Errorf("create public ws client: %w", err), true)
 					startDone <- err

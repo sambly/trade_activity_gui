@@ -73,11 +73,23 @@ func main() {
 		slog.Warn("Failed to load .env file", "error", err)
 	}
 
+	// Demo Trading — отдельный контур Bybit с реальными рыночными данными и виртуальным балансом,
+	// требует своих API-ключей (создаются в разделе "Demo Trading" аккаунта Bybit) — ключи для
+	// боевой торговли там не подойдут, поэтому держим отдельную пару в конфиге.
+	demoMode := os.Getenv("EXCHANGE_BYBIT_DEMO") == "true"
+
 	APIKey := os.Getenv("EXCHANGE_BYBIT_API_KEY")
 	APISecret := os.Getenv("EXCHANGE_BYBIT_SECRET_KEY")
+	if demoMode {
+		APIKey = os.Getenv("EXCHANGE_BYBIT_DEMO_API_KEY")
+		APISecret = os.Getenv("EXCHANGE_BYBIT_DEMO_SECRET_KEY")
+	}
 
 	if APIKey == "" || APISecret == "" {
-		slog.Error("Missing API credentials")
+		slog.Error("Missing API credentials", "demoMode", demoMode)
+		if demoMode {
+			panic("EXCHANGE_BYBIT_DEMO_API_KEY and EXCHANGE_BYBIT_DEMO_SECRET_KEY must be set")
+		}
 		panic("EXCHANGE_BYBIT_API_KEY and EXCHANGE_BYBIT_SECRET_KEY must be set")
 	}
 
@@ -86,6 +98,7 @@ func main() {
 		APISecret,
 		slog.Default(),
 		debug,
+		demoMode,
 	)
 
 	if err != nil {

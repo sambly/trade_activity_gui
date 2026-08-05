@@ -25,6 +25,15 @@ Create a `.env` file in the project root directory with your Bybit API keys:
 ```
 EXCHANGE_BYBIT_API_KEY=your_api_key_here
 EXCHANGE_BYBIT_SECRET_KEY=your_secret_key_here
+
+# Optional: set to true to connect to Bybit Demo Trading (api-demo.bybit.com) instead of
+# live trading.
+EXCHANGE_BYBIT_DEMO=false
+# Demo Trading requires its own API keys, generated separately from the "Demo Trading"
+# section of your Bybit account — your live-trading keys above will not work here.
+# Only needed when EXCHANGE_BYBIT_DEMO=true.
+EXCHANGE_BYBIT_DEMO_API_KEY=
+EXCHANGE_BYBIT_DEMO_SECRET_KEY=
 ```
 
 ## Live Development
