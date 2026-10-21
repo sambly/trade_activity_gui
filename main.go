@@ -52,6 +52,10 @@ func getBuildMode() string {
 
 func main() {
 
+	// .env грузим до SetupLogger — только так переменная LOG_LEVEL (если задана там)
+	// успевает попасть в os.Getenv к моменту, когда логгер читает уровень логирования.
+	envErr := godotenv.Load()
+
 	debug := false
 	build := getBuildMode()
 	if build == "dev" {
@@ -69,8 +73,8 @@ func main() {
 
 	slog.Info("Application starting")
 
-	if err := godotenv.Load(); err != nil {
-		slog.Warn("Failed to load .env file", "error", err)
+	if envErr != nil {
+		slog.Warn("Failed to load .env file", "error", envErr)
 	}
 
 	// Demo Trading — отдельный контур Bybit с реальными рыночными данными и виртуальным балансом,

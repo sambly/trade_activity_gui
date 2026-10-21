@@ -8,8 +8,35 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 )
+
+// defaultLogLevel — уровень по умолчанию для сборки, если LOG_LEVEL не задан.
+func defaultLogLevel(build string) slog.Level {
+	if build == "production" {
+		return slog.LevelInfo
+	}
+	return slog.LevelDebug
+}
+
+// parseLogLevel разбирает значение LOG_LEVEL. ok=false (в т.ч. для пустой строки) —
+// переменная не задана или значение не распознано, тогда вызывающий код оставляет
+// уровень по умолчанию для сборки.
+func parseLogLevel(raw string) (slog.Level, bool) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "debug":
+		return slog.LevelDebug, true
+	case "info":
+		return slog.LevelInfo, true
+	case "warn", "warning":
+		return slog.LevelWarn, true
+	case "error":
+		return slog.LevelError, true
+	default:
+		return 0, false
+	}
+}
 
 func SetupLogger(build string) (*os.File, error) {
 
@@ -32,15 +59,21 @@ func SetupLogger(build string) (*os.File, error) {
 	}
 
 	var multiWriter io.Writer
-	var logLevel slog.Level
 
 	switch build {
 	case "production":
 		multiWriter = io.MultiWriter(logFile)
-		logLevel = slog.LevelInfo
 	default:
 		multiWriter = io.MultiWriter(os.Stdout, logFile)
-		logLevel = slog.LevelDebug
+	}
+
+	// Уровень по умолчанию зависит от сборки (production — тише), но его можно
+	// переопределить переменной окружения LOG_LEVEL (напр. в .env, см. main.go) без
+	// пересборки — например, чтобы на уже установленном проде временно включить Debug
+	// и поймать проблему с джобом лимитного закрытия (см. position_service.go).
+	logLevel := defaultLogLevel(build)
+	if override, ok := parseLogLevel(os.Getenv("LOG_LEVEL")); ok {
+		logLevel = override
 	}
 
 	handler := slog.NewTextHandler(multiWriter, &slog.HandlerOptions{

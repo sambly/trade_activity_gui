@@ -4,6 +4,8 @@ import {exchange} from '../models';
 
 export function GetConnectionStatus():Promise<string>;
 
+export function GetLimitCloseSummary(arg1:string):Promise<exchange.LimitCloseSummary>;
+
 export function GetPositions():Promise<Array<exchange.Position>>;
 
 export function HideWindow():Promise<void>;
@@ -11,3 +13,7 @@ export function HideWindow():Promise<void>;
 export function QuitApp():Promise<void>;
 
 export function ShowWindow():Promise<void>;
+
+export function StartLimitClose(arg1:string):Promise<void>;
+
+export function StopLimitClose(arg1:string):Promise<void>;

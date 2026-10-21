@@ -7,13 +7,14 @@
       :title="statusTitle"
       @click="handleClick"
     />
-    <!-- Кнопка переключения виджета TradingView -->
+    <!-- Кнопка "назад к списку" — видна только когда открыта конкретная позиция -->
     <button
-      class="widget-toggle-btn"
-      :title="widgetButtonTitle"
-      @click="$emit('toggle-widget')"
+      v-if="viewMode !== 'list'"
+      class="back-btn"
+      title="Назад к списку"
+      @click="$emit('go-back')"
     >
-      📊
+      ⬅
     </button>
 
     <!-- Кнопка переключения тёмной темы -->
@@ -35,6 +36,12 @@ import { useTheme } from '../composables/useTheme'
 import { GetConnectionStatus} from '../../wailsjs/go/main/App'
 
 const { isDark, toggleTheme } = useTheme()
+
+withDefaults(defineProps<{
+  viewMode?: 'list' | 'detail' | 'detail-chart'
+}>(), {
+  viewMode: 'list'
+})
 
 // Реактивные данные
 const connectionStatus = ref<'connected' | 'disconnected' | 'error'>('connected')
@@ -60,8 +67,6 @@ const statusTitle = computed(() => {
     default: return 'Неизвестный статус'
   }
 })
-
-const widgetButtonTitle = computed(() => 'Переключить виджет')
 
 // Функция обновления статуса из Go
 const updateStatusFromGo = async () => {
@@ -99,7 +104,7 @@ defineExpose({
 })
 
 defineEmits<{
-  (e: 'toggle-widget'): void
+  (e: 'go-back'): void
 }>()
 </script>
 
@@ -114,7 +119,7 @@ defineEmits<{
   padding-top: 1px;
 }
 
-.widget-toggle-btn {
+.back-btn {
   width: 8px;
   height: 8px;
   border: none;
@@ -123,13 +128,14 @@ defineEmits<{
   padding: 0;
   font-size: 8px;
   line-height: 1;
+  color: var(--color-text);
   display: flex;
   align-items: center;
   justify-content: center;
   transition: transform 0.2s;
 }
 
-.widget-toggle-btn:hover {
+.back-btn:hover {
   transform: scale(1.2);
 }
 

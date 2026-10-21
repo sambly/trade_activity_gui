@@ -8,6 +8,7 @@ import (
 	"log"
 	"log/slog"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 	"trade_activity_gui/logger"
@@ -86,6 +87,165 @@ func NewBybit(key, secret string, logger *slog.Logger, debug bool, demo bool) (*
 		wsPublicClient:  wsPublicClient,
 		wsPrivateClient: wsPrivateClient,
 	}, nil
+}
+
+func (b *Bybit) GetInstrumentInfo(symbol string) (InstrumentInfo, error) {
+	sym := bybit.SymbolV5(symbol)
+
+	resp, err := b.client.V5().Market().GetInstrumentsInfo(bybit.V5GetInstrumentsInfoParam{
+		Category: bybit.CategoryV5Linear,
+		Symbol:   &sym,
+	})
+	if err != nil {
+		return InstrumentInfo{}, fmt.Errorf("get instruments info: %w", err)
+	}
+	if resp.Result.LinearInverse == nil || len(resp.Result.LinearInverse.List) == 0 {
+		return InstrumentInfo{}, fmt.Errorf("instrument info not found: %s", symbol)
+	}
+
+	item := resp.Result.LinearInverse.List[0]
+
+	tickSize, err := strconv.ParseFloat(item.PriceFilter.TickSize, 64)
+	if err != nil {
+		return InstrumentInfo{}, fmt.Errorf("parse tick size: %w", err)
+	}
+	qtyStep, err := strconv.ParseFloat(item.LotSizeFilter.QtyStep, 64)
+	if err != nil {
+		return InstrumentInfo{}, fmt.Errorf("parse qty step: %w", err)
+	}
+
+	return InstrumentInfo{TickSize: tickSize, QtyStep: qtyStep}, nil
+}
+
+// formatOrderNumber форматирует цену/объём ордера для отправки на биржу. roundToTick/
+// roundToStep в position_service.go считают через math.Round(x/step)*step, что из-за
+// погрешности float64 может дать, например, 48.400000000000006 вместо 48.4 —
+// strconv.FormatFloat(..., -1, ...) добросовестно печатает это как есть, и биржа такую
+// строку отклоняет ("Qty invalid"). Округляем до 8 знаков (с запасом для любого
+// крипто-инструмента на Bybit) и обрезаем незначащие нули — округление до фиксированной
+// точности убирает шум, обрезка оставляет ровно то число знаков, что нёс сам шаг.
+func formatOrderNumber(value float64) string {
+	s := strconv.FormatFloat(value, 'f', 8, 64)
+	s = strings.TrimRight(s, "0")
+	s = strings.TrimRight(s, ".")
+	if s == "" || s == "-" || s == "-0" {
+		return "0"
+	}
+	return s
+}
+
+// PlaceReduceOnlyLimitOrder ставит reduce-only PostOnly лимитный ордер — reduceOnly не
+// даёт ему открыть позицию в противоположную сторону, если размер разойдётся с реальным
+// (например, позицию уже успели частично закрыть руками), PostOnly не даёт ему
+// исполниться тейкером, если репрайсинг вдруг пересечёт спред.
+func (b *Bybit) PlaceReduceOnlyLimitOrder(symbol, side string, qty, price float64, positionIdx int) (string, error) {
+	qtyStr := formatOrderNumber(qty)
+	priceStr := formatOrderNumber(price)
+	reduceOnly := true
+	tif := bybit.TimeInForcePostOnly
+	pIdx := bybit.PositionIdx(positionIdx)
+
+	resp, err := b.client.V5().Order().CreateOrder(bybit.V5CreateOrderParam{
+		Category:    bybit.CategoryV5Linear,
+		Symbol:      bybit.SymbolV5(symbol),
+		Side:        bybit.Side(side),
+		OrderType:   bybit.OrderTypeLimit,
+		Qty:         qtyStr,
+		Price:       &priceStr,
+		TimeInForce: &tif,
+		ReduceOnly:  &reduceOnly,
+		PositionIdx: &pIdx,
+	})
+	if err != nil {
+		return "", fmt.Errorf("create order: %w", err)
+	}
+
+	return resp.Result.OrderID, nil
+}
+
+// AmendOrderPrice переставляет цену уже стоящего ордера, не отменяя его — дешевле и без
+// гонки (окно между cancel и create, в которое можно пропустить исполнение), чем
+// cancel + create.
+func (b *Bybit) AmendOrderPrice(symbol, orderID string, price float64) error {
+	priceStr := formatOrderNumber(price)
+
+	_, err := b.client.V5().Order().AmendOrder(bybit.V5AmendOrderParam{
+		Category: bybit.CategoryV5Linear,
+		Symbol:   bybit.SymbolV5(symbol),
+		OrderID:  &orderID,
+		Price:    &priceStr,
+	})
+	if err != nil {
+		return fmt.Errorf("amend order: %w", err)
+	}
+
+	return nil
+}
+
+func (b *Bybit) CancelOrder(symbol, orderID string) error {
+	_, err := b.client.V5().Order().CancelOrder(bybit.V5CancelOrderParam{
+		Category: bybit.CategoryV5Linear,
+		Symbol:   bybit.SymbolV5(symbol),
+		OrderID:  &orderID,
+	})
+	if err != nil {
+		return fmt.Errorf("cancel order: %w", err)
+	}
+
+	return nil
+}
+
+// GetOrderStatus — см. OrderStatusInfo. Открытые ордера (GetOpenOrders) уже не найдут
+// ордер, который биржа сочла завершённым, поэтому смотрим в историю (GetHistoryOrders).
+func (b *Bybit) GetOrderStatus(symbol, orderID string) (OrderStatusInfo, error) {
+	resp, err := b.client.V5().Order().GetHistoryOrders(bybit.V5GetHistoryOrdersParam{
+		Category: bybit.CategoryV5Linear,
+		Symbol:   (*bybit.SymbolV5)(&symbol),
+		OrderID:  &orderID,
+	})
+	if err != nil {
+		return OrderStatusInfo{}, fmt.Errorf("get history orders: %w", err)
+	}
+	if len(resp.Result.List) == 0 {
+		return OrderStatusInfo{}, fmt.Errorf("order not found in history: %s", orderID)
+	}
+
+	o := resp.Result.List[0]
+	return OrderStatusInfo{
+		Status:       string(o.OrderStatus),
+		CancelType:   o.CancelType,
+		RejectReason: o.RejectReason,
+	}, nil
+}
+
+// GetOpenOrders возвращает активные ордера по символу — используется при старте
+// приложения, чтобы найти резидентные reduce-only ордера, оставшиеся от джоба
+// лимитного закрытия, прерванного предыдущим выключением (см.
+// PositionService.adoptOrphanedLimitCloseOrders).
+func (b *Bybit) GetOpenOrders(symbol string) ([]OpenOrderInfo, error) {
+	sym := bybit.SymbolV5(symbol)
+
+	resp, err := b.client.V5().Order().GetOpenOrders(bybit.V5GetOpenOrdersParam{
+		Category: bybit.CategoryV5Linear,
+		Symbol:   &sym,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get open orders: %w", err)
+	}
+
+	orders := make([]OpenOrderInfo, 0, len(resp.Result.List))
+	for _, o := range resp.Result.List {
+		price, _ := strconv.ParseFloat(o.Price, 64)
+		orders = append(orders, OpenOrderInfo{
+			OrderID:     o.OrderID,
+			Side:        string(o.Side),
+			Price:       price,
+			PositionIdx: o.PositionIdx,
+			ReduceOnly:  o.ReduceOnly,
+		})
+	}
+
+	return orders, nil
 }
 
 func (b *Bybit) GetPositionInfo() ([]Position, error) {
@@ -250,7 +410,7 @@ func (b *Bybit) SubscribePositionStart(ctx context.Context, onData func(pos Posi
 	return unsubscribe, nil
 }
 
-func (b *Bybit) SubscribeTickerStart(ctx context.Context, symbol string, onData func(price float64), onError func(err error, critical bool)) (func() error, error) {
+func (b *Bybit) SubscribeTickerStart(ctx context.Context, symbol string, onData func(update TickerUpdate), onError func(err error, critical bool)) (func() error, error) {
 
 	ctx, cancel := context.WithCancel(ctx)
 
@@ -277,13 +437,34 @@ func (b *Bybit) SubscribeTickerStart(ctx context.Context, symbol string, onData 
 	}
 
 	dataHandler := func(msg bybit.V5WebsocketPublicTickerResponse) error {
-		if msg.Data.LinearInverse.LastPrice != "" {
-			price, err := strconv.ParseFloat(msg.Data.LinearInverse.LastPrice, 64)
-			if err != nil {
-				return nil
-			}
-			onData(price)
+		if msg.Data.LinearInverse == nil {
+			return nil
 		}
+
+		// Снэпшот шлёт все поля сразу, дельты — только изменившиеся, остальные придут
+		// пустой строкой. Заполняем только то, что реально пришло в этом сообщении.
+		var update TickerUpdate
+		if raw := msg.Data.LinearInverse.LastPrice; raw != "" {
+			if v, err := strconv.ParseFloat(raw, 64); err == nil {
+				update.Price = &v
+			}
+		}
+		if raw := msg.Data.LinearInverse.Bid1Price; raw != "" {
+			if v, err := strconv.ParseFloat(raw, 64); err == nil {
+				update.Bid1 = &v
+			}
+		}
+		if raw := msg.Data.LinearInverse.Ask1Price; raw != "" {
+			if v, err := strconv.ParseFloat(raw, 64); err == nil {
+				update.Ask1 = &v
+			}
+		}
+
+		if update.Price == nil && update.Bid1 == nil && update.Ask1 == nil {
+			return nil
+		}
+
+		onData(update)
 		return nil
 	}
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"trade_activity_gui/exchange"
 	"trade_activity_gui/hub"
@@ -52,6 +53,26 @@ func (a *App) GetConnectionStatus() string {
 		return "Error"
 	}
 	return string(a.hub.GetOverallStatus())
+}
+
+// StartLimitClose запускает автоматическое закрытие позиции лимитками (см.
+// PositionService.StartLimitClose). a.ctx — тот же контекст, что у всего приложения,
+// поэтому джоб автоматически остановится при выключении приложения.
+func (a *App) StartLimitClose(symbol string) error {
+	if a.ctx == nil {
+		return errors.New("application is not ready yet")
+	}
+	return a.dataFeed.PosService.StartLimitClose(a.ctx, symbol)
+}
+
+func (a *App) StopLimitClose(symbol string) error {
+	return a.dataFeed.PosService.StopLimitClose(symbol)
+}
+
+// GetLimitCloseSummary возвращает сводку по последнему полностью закрытому лимитками
+// прогону для символа (nil, если такого не было) — см. PositionService.GetLimitCloseSummary.
+func (a *App) GetLimitCloseSummary(symbol string) *exchange.LimitCloseSummary {
+	return a.dataFeed.PosService.GetLimitCloseSummary(symbol)
 }
 
 // ShowWindow, HideWindow и QuitApp вызываются из меню в системном трее (tray/tray.go).

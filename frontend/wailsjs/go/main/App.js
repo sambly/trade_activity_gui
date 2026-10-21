@@ -6,6 +6,10 @@ export function GetConnectionStatus() {
   return window['go']['main']['App']['GetConnectionStatus']();
 }
 
+export function GetLimitCloseSummary(arg1) {
+  return window['go']['main']['App']['GetLimitCloseSummary'](arg1);
+}
+
 export function GetPositions() {
   return window['go']['main']['App']['GetPositions']();
 }
@@ -20,4 +24,12 @@ export function QuitApp() {
 
 export function ShowWindow() {
   return window['go']['main']['App']['ShowWindow']();
+}
+
+export function StartLimitClose(arg1) {
+  return window['go']['main']['App']['StartLimitClose'](arg1);
+}
+
+export function StopLimitClose(arg1) {
+  return window['go']['main']['App']['StopLimitClose'](arg1);
 }
